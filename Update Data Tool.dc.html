@@ -199,6 +199,7 @@ class Component extends DCLogic {
       dedupe: this.state.dedupe, dedupeStyle: chip(this.state.dedupe), dedupeIcon: this.state.dedupe ? '✓' : '○', toggleDedupe: this.toggleDedupe,
       includeBuiltin: this.state.includeBuiltin, builtinStyle: chip(this.state.includeBuiltin), builtinIcon: this.state.includeBuiltin ? '✓' : '○', toggleBuiltin: this.toggleBuiltin,
       builtinCount: this.fmt((window.FISH_DATA || []).length),
+      onFiles: this.onFiles,
       hasFiles: this.state.fileData.length > 0,
       fileList: fileStats.map((f, i) => ({
         name: f.name,

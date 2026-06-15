@@ -1,0 +1,2394 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("</x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    @keyframes sc-veil-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine .73s ease infinite}
+    html.sc-dc-streaming::after{content:'';position:fixed;inset:0;
+      z-index:2147483646;pointer-events:none;
+      box-shadow:inset 0 0 90px rgba(217,119,87,.16),inset 0 0 22px rgba(217,119,87,.1);
+      animation:sc-veil-pulse 1.36s ease-in-out infinite}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:rgba(0,0,0,.7);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:rgba(0,0,0,.5);background:rgba(0,0,0,.05);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      html, body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      section, article, figure, table { break-inside: avoid; }
+      *, *::before, *::after {
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+      const raw = t ? parseDcText(t) : null;
+      if (raw?.template) runtime.updateHtml(rootName, raw.template);
+    }).catch(() => {
+    });
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      return h(Root, entry.propOverrides || null);
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, isComponent, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (isComponent) {
+        if (key.includes("-")) key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, true, host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) props[k] = g(vals);
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const url = el.getAttribute("from") || el.getAttribute("src") || el.getAttribute("import") || "";
+    const kind = /\.(jsx|tsx)(\?|#|$)/i.test(url) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, true, host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const kids = hasContent ? walkChildren(el, host) : [];
+    const urlBindable = url.includes("{{");
+    if (url && !urlBindable) host.loadExternal(kind, url);
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "name" || k === "from" || k === "src" || k === "import") {
+          continue;
+        }
+        props[k] = g(vals);
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const { propGetters, pseudoClasses } = collectProps(el, false, host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = { key, "data-dc-tpl": tplId };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...kids.map((b, j) => b(vals, ctx, j)));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          this.__reconcileLogic();
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+        } catch (e) {
+          console.error(e);
+          registry.get(this.__name).logicError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const Next = registry.get(this.__name).Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic)
+          return;
+        try {
+          this.logic.componentWillUnmount();
+        } catch (e) {
+          console.error(e);
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        try {
+          this.logic.componentWillUnmount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h("div", { className: "sc-logic-error" }, renderErr),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.26.4/babel.min.js";
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = BABEL_URL;
+        s.crossOrigin = "anonymous";
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    function load(kind, url) {
+      if (cache.has(url)) return;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = kind === "jsx" ? ensureBabel() : Promise.resolve();
+      ready.then(() => fetch(url)).then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/helmet.ts
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile };
+  }
+
+  // src/pseudo.ts
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const sel = pseudo === "before" || pseudo === "after" ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(sel + "{" + css + "}", el.sheet.cssRules.length);
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url) => external.load(kind, url),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + name + ".dc.html";
+      fetch(url).then((res) => {
+        if (!res.ok) {
+          console.error(
+            "[dc-runtime] sibling fetch for <" + name + "/> failed:",
+            url,
+            "returned",
+            res.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res.text();
+      }).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            "[dc-runtime] sibling fetch for <" + name + "/>:",
+            url,
+            "has no <x-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          "[dc-runtime] sibling fetch for <" + name + "/> threw:",
+          url,
+          e
+        )
+      );
+    }
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/index.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      s.integrity = integrity;
+      s.crossOrigin = "anonymous";
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    return Promise.all([
+      loadScript(REACT_URL, REACT_SRI),
+      loadScript(REACT_DOM_URL, REACT_DOM_SRI)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const api = {
+      __dcUpdate: (name, kind, content, streaming) => {
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`<sc-comp>`,
+       *  `sc-camel-*` attrs); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+</script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="./fish-data.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #f5f1e8; color: #16302c; font-family: 'Hanken Grotesk', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgba(226,86,59,0.22); }
+  .lk-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+  .lk-scroll::-webkit-scrollbar-thumb { background: rgba(20,64,59,0.18); border-radius: 8px; }
+  .lk-row:hover { background: rgba(31,122,109,0.06) !important; }
+  .lk-tab:hover { color: #16302c !important; }
+  .lk-btn:hover { filter: brightness(1.05); }
+  .lk-link:hover { text-decoration: underline; }
+  @keyframes lkfloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  .leaflet-container { font-family: 'Hanken Grotesk', sans-serif; border-radius: 18px; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;">
+
+  <!-- NAV -->
+  <header style="position:sticky;top:0;z-index:40;background:rgba(245,241,232,0.86);backdrop-filter:blur(12px);border-bottom:1px solid rgba(20,64,59,0.12);">
+    <div style="max-width:1200px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:12px;margin-right:auto;">
+        <div style="width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 32% 30%, #2f9d8a, #1f7a6d 70%);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px -4px rgba(31,122,109,0.6);flex:none;">
+          <div style="width:14px;height:14px;border-radius:50% 50% 50% 0;background:#e2563b;transform:rotate(45deg);"></div>
+        </div>
+        <div style="line-height:1.05;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:18px;letter-spacing:-0.02em;">{{ appTitle }}</div>
+          <div style="font-size:12px;color:#5d726c;font-weight:500;">{{ appSubtitle }}</div>
+        </div>
+      </div>
+
+      <nav style="display:flex;gap:4px;background:rgba(255,253,247,0.7);border:1px solid rgba(20,64,59,0.10);padding:4px;border-radius:999px;">
+        <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="4">
+          <button class="lk-tab" onClick="{{ item.onClick }}" style="{{ item.style }}">{{ item.label }}</button>
+        </sc-for>
+      </nav>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#5d726c;background:rgba(255,253,247,0.7);border:1px solid rgba(20,64,59,0.10);padding:6px 11px;border-radius:999px;">
+          <span style="width:7px;height:7px;border-radius:50%;background:{{ dataDotColor }};flex:none;"></span>
+          {{ dataSourceLabel }}
+        </div>
+        <div style="position:relative;">
+          <button class="lk-btn" onClick="{{ toggleMenu }}" style="font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:13px;color:#fffdf7;background:#1f7a6d;border:none;padding:9px 15px;border-radius:999px;cursor:pointer;box-shadow:0 4px 12px -4px rgba(31,122,109,0.7);">Update data ▾</button>
+          <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;right:0;top:46px;width:248px;background:#fffdf7;border:1px solid rgba(20,64,59,0.12);border-radius:14px;box-shadow:0 22px 50px -22px rgba(20,48,44,0.55);padding:6px;z-index:50;">
+              <button class="lk-row" onClick="{{ pickAdd }}" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:11px 12px;border-radius:10px;font-family:'Hanken Grotesk',sans-serif;">
+                <div style="font-weight:600;font-size:13.5px;color:#16302c;">＋ Add records to current</div>
+                <div style="font-size:12px;color:#5d726c;margin-top:1px;">Append a CSV, keep what's loaded</div>
+              </button>
+              <button class="lk-row" onClick="{{ pickReplace }}" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:11px 12px;border-radius:10px;font-family:'Hanken Grotesk',sans-serif;">
+                <div style="font-weight:600;font-size:13.5px;color:#16302c;">↺ Replace all data</div>
+                <div style="font-size:12px;color:#5d726c;margin-top:1px;">Swap in a fresh CSV</div>
+              </button>
+            </div>
+          </sc-if>
+          <input type="file" accept=".csv,text/csv" ref="{{ setFileInput }}" onChange="{{ onUpload }}" style="display:none;">
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main style="flex:1;width:100%;max-width:1200px;margin:0 auto;padding:26px 22px 60px;">
+
+    <!-- ================= OVERVIEW ================= -->
+    <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <!-- HERO -->
+      <div style="position:relative;overflow:hidden;border-radius:26px;background:linear-gradient(135deg,#13403b 0%,#1f7a6d 52%,#2f7fae 120%);color:#fdfcf7;padding:38px 36px;box-shadow:0 24px 60px -34px rgba(19,64,59,0.9);">
+        <div style="position:absolute;top:-70px;right:-40px;width:240px;height:240px;border-radius:50%;background:rgba(255,253,247,0.08);"></div>
+        <div style="position:absolute;bottom:-90px;right:120px;width:170px;height:170px;border-radius:50%;background:rgba(226,86,59,0.16);"></div>
+        <div style="position:relative;display:flex;justify-content:space-between;align-items:flex-end;gap:28px;flex-wrap:wrap;">
+          <div style="max-width:560px;">
+            <div style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;background:rgba(255,253,247,0.14);padding:6px 12px;border-radius:999px;margin-bottom:16px;">{{ heroBadge }}</div>
+            <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:38px;line-height:1.05;letter-spacing:-0.025em;margin:0 0 14px;text-wrap:balance;">{{ heroHeadline }}</h1>
+            <p style="font-size:16px;line-height:1.5;color:rgba(253,252,247,0.85);margin:0 0 22px;text-wrap:pretty;">{{ storyText }}</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <sc-for list="{{ heroFacts }}" as="f" hint-placeholder-count="4">
+                <div style="display:flex;flex-direction:column;gap:1px;background:rgba(255,253,247,0.12);border:1px solid rgba(255,253,247,0.18);padding:9px 14px;border-radius:14px;">
+                  <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:rgba(253,252,247,0.7);">{{ f.label }}</span>
+                  <span style="font-size:15px;font-weight:600;">{{ f.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="text-align:right;flex:none;">
+            <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:72px;line-height:0.9;letter-spacing:-0.03em;">{{ heroCount }}</div>
+            <div style="font-size:14px;font-weight:600;color:rgba(253,252,247,0.85);margin-top:4px;">{{ heroCountLabel }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STAT TILES -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:18px;">
+        <sc-for list="{{ statTiles }}" as="t" hint-placeholder-count="5">
+          <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:18px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;color:#5d726c;">{{ t.label }}</div>
+            <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px;letter-spacing:-0.02em;margin-top:6px;color:{{ t.color }};">{{ t.value }}</div>
+            <div style="font-size:13px;color:#5d726c;margin-top:1px;">{{ t.sub }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- ACTIVITY + EVENT SPLIT -->
+      <div style="display:grid;grid-template-columns:1.7fr 1fr;gap:16px;margin-top:18px;">
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:22px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);min-width:0;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;">
+            <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0;">Tagging activity</h3>
+            <span style="font-size:12.5px;color:#5d726c;font-weight:500;">{{ chartActivity.peakText }}</span>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:5px;height:170px;padding-top:14px;">
+            <sc-for list="{{ chartActivity.bars }}" as="b" hint-placeholder-count="12">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0;">
+                <div title="{{ b.value }}" style="{{ b.barStyle }}"></div>
+                <span style="font-size:10px;color:#5d726c;font-weight:500;white-space:nowrap;">{{ b.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:22px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 16px;">Event types</h3>
+          <div style="display:flex;height:16px;border-radius:999px;overflow:hidden;background:rgba(20,64,59,0.06);">
+            <div style="{{ eventSplit.segMarkStyle }}"></div>
+            <div style="{{ eventSplit.segRecapStyle }}"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;margin-top:18px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#1f7a6d;flex:none;"></span>
+              <span style="font-size:14px;font-weight:600;">Mark</span>
+              <span style="margin-left:auto;font-size:14px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;">{{ eventSplit.markLabel }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#e2563b;flex:none;"></span>
+              <span style="font-size:14px;font-weight:600;">Recapture</span>
+              <span style="margin-left:auto;font-size:14px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;">{{ eventSplit.recapLabel }}</span>
+            </div>
+          </div>
+          <p style="font-size:12.5px;line-height:1.45;color:#5d726c;margin:16px 0 0;border-top:1px solid rgba(20,64,59,0.10);padding-top:12px;">{{ eventSplit.note }}</p>
+        </div>
+      </div>
+
+      <!-- CREW -->
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:22px;margin-top:16px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 18px;">Field crew contributions</h3>
+        <div style="display:flex;flex-direction:column;gap:13px;">
+          <sc-for list="{{ chartCrew }}" as="c" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:120px;font-size:13.5px;font-weight:600;flex:none;text-align:right;">{{ c.name }}</div>
+              <div style="flex:1;height:22px;background:rgba(20,64,59,0.05);border-radius:8px;overflow:hidden;">
+                <div style="{{ c.fillStyle }}"></div>
+              </div>
+              <div style="width:46px;font-size:13.5px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;flex:none;">{{ c.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;">
+        <button class="lk-btn" onClick="{{ goTable }}" style="flex:1;min-width:200px;text-align:left;cursor:pointer;border:1px solid rgba(20,64,59,0.12);background:#fffdf7;border-radius:18px;padding:18px 20px;font-family:'Hanken Grotesk',sans-serif;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;color:#16302c;">Explore every record →</div>
+          <div style="font-size:13px;color:#5d726c;margin-top:3px;">Search, filter and sort all {{ heroCount }} entries</div>
+        </button>
+        <button class="lk-btn" onClick="{{ goMap }}" style="flex:1;min-width:200px;text-align:left;cursor:pointer;border:1px solid rgba(20,64,59,0.12);background:#fffdf7;border-radius:18px;padding:18px 20px;font-family:'Hanken Grotesk',sans-serif;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;color:#16302c;">See it on the map →</div>
+          <div style="font-size:13px;color:#5d726c;margin-top:3px;">Where the fish were caught and released</div>
+        </button>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ================= EXPLORE / TABLE ================= -->
+    <sc-if value="{{ isTable }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="margin-bottom:18px;">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin:0 0 4px;">Explore the records</h2>
+        <p style="font-size:14.5px;color:#5d726c;margin:0;">{{ resultLabel }}</p>
+      </div>
+
+      <!-- toolbar -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+        <div style="position:relative;flex:1;min-width:220px;">
+          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#9aa8a3;font-size:15px;">⌕</span>
+          <input value="{{ search }}" onInput="{{ onSearch }}" placeholder="Search PIT tag, record #, crew…" style="width:100%;font-family:'Hanken Grotesk',sans-serif;font-size:14px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 14px 11px 34px;outline:none;">
+        </div>
+        <select value="{{ filterEvent }}" onChange="{{ onEventChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ eventOptions }}" as="o" hint-placeholder-count="3"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <select value="{{ filterCrew }}" onChange="{{ onCrewChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ crewOptions }}" as="o" hint-placeholder-count="5"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <select value="{{ filterSpecies }}" onChange="{{ onSpeciesChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ speciesOptions }}" as="o" hint-placeholder-count="2"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <button class="lk-link" onClick="{{ clearFilters }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13px;font-weight:600;color:#1f7a6d;background:none;border:none;cursor:pointer;padding:6px;">Clear</button>
+      </div>
+
+      <!-- table -->
+      <div class="lk-scroll" style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:18px;overflow:auto;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:760px;">
+          <thead>
+            <tr style="background:rgba(31,122,109,0.07);">
+              <sc-for list="{{ headerCols }}" as="h" hint-placeholder-count="7">
+                <th onClick="{{ h.onClick }}" style="{{ h.style }}">{{ h.label }}{{ h.arrow }}</th>
+              </sc-for>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ pageRows }}" as="r" hint-placeholder-count="10">
+              <tr class="lk-row" onClick="{{ r.open }}" style="cursor:pointer;border-top:1px solid rgba(20,64,59,0.08);">
+                <td style="padding:12px 14px;color:#5d726c;font-weight:600;">{{ r.recNum }}</td>
+                <td style="padding:12px 14px;font-family:'Spline Sans Mono',monospace;font-size:12.5px;color:#16302c;">{{ r.pitTag }}</td>
+                <td style="padding:12px 14px;font-weight:600;">{{ r.species }}</td>
+                <td style="padding:12px 14px;"><span style="{{ r.eventStyle }}">{{ r.eventLabel }}</span></td>
+                <td style="padding:12px 14px;color:#16302c;">{{ r.dateLabel }}<span style="color:#9aa8a3;"> · {{ r.timeLabel }}</span></td>
+                <td style="padding:12px 14px;color:#16302c;">{{ r.site }}</td>
+                <td style="padding:12px 14px;color:#5d726c;">{{ r.crew }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- pagination -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:16px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:#5d726c;">{{ pageLabel }}</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="lk-btn" onClick="{{ prevPage }}" style="{{ prevStyle }}">← Prev</button>
+          <button class="lk-btn" onClick="{{ nextPage }}" style="{{ nextStyle }}">Next →</button>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ================= CHARTS ================= -->
+    <sc-if value="{{ isCharts }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="margin-bottom:18px;">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin:0 0 4px;">The data at a glance</h2>
+        <p style="font-size:14.5px;color:#5d726c;margin:0;">Simple charts anyone can read — no spreadsheets required.</p>
+      </div>
+
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0;">When were fish handled?</h3>
+          <span style="font-size:12.5px;color:#5d726c;font-weight:500;">{{ chartActivity.peakText }}</span>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:200px;padding-top:14px;">
+          <sc-for list="{{ chartActivity.bars }}" as="b" hint-placeholder-count="12">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0;">
+              <span style="font-size:10.5px;font-weight:700;color:#1f7a6d;font-family:'Bricolage Grotesque',sans-serif;">{{ b.value }}</span>
+              <div style="{{ b.barStyle }}"></div>
+              <span style="font-size:10px;color:#5d726c;font-weight:500;white-space:nowrap;">{{ b.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 18px;">Records by crew member</h3>
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <sc-for list="{{ chartCrew }}" as="c" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:104px;font-size:13px;font-weight:600;flex:none;text-align:right;">{{ c.name }}</div>
+                <div style="flex:1;height:20px;background:rgba(20,64,59,0.05);border-radius:7px;overflow:hidden;"><div style="{{ c.fillStyle }}"></div></div>
+                <div style="width:42px;font-size:13px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;flex:none;">{{ c.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 18px;">{{ breakdownTitle }}</h3>
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <sc-for list="{{ chartBreakdown }}" as="c" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:120px;font-size:13px;font-weight:600;flex:none;text-align:right;">{{ c.name }}</div>
+                <div style="flex:1;height:20px;background:rgba(20,64,59,0.05);border-radius:7px;overflow:hidden;"><div style="{{ c.fillStyle }}"></div></div>
+                <div style="width:42px;font-size:13px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;flex:none;">{{ c.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <!-- measurements -->
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;margin-top:16px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 6px;">Fish size</h3>
+        <sc-if value="{{ hasMeasure }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <span style="font-size:12.5px;color:#5d726c;">{{ lengthHist.caption }}</span>
+            <div style="display:flex;align-items:flex-end;gap:6px;height:160px;padding-top:14px;">
+              <sc-for list="{{ lengthHist.bars }}" as="b" hint-placeholder-count="8">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0;">
+                  <div style="{{ b.barStyle }}"></div>
+                  <span style="font-size:10px;color:#5d726c;font-weight:500;white-space:nowrap;">{{ b.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noMeasure }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:14px;background:rgba(31,122,109,0.05);border:1px dashed rgba(20,64,59,0.18);border-radius:14px;padding:18px 20px;">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(31,122,109,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none;">📏</div>
+            <div>
+              <div style="font-weight:600;font-size:14.5px;">No length or weight measurements in this dataset</div>
+              <div style="font-size:13px;color:#5d726c;margin-top:2px;">When records include Length or Weight, a size chart will appear here automatically.</div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ================= MAP ================= -->
+    <sc-if value="{{ isMap }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="margin-bottom:18px;">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin:0 0 4px;">Where it happened</h2>
+        <p style="font-size:14.5px;color:#5d726c;margin:0;">{{ mapNote }}</p>
+      </div>
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:14px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <div ref="{{ setMapEl }}" style="width:100%;height:520px;border-radius:14px;background:rgba(31,122,109,0.06);"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:16px;">
+        <sc-for list="{{ siteList }}" as="s" hint-placeholder-count="2">
+          <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:16px;padding:16px 18px;display:flex;align-items:center;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:50%;background:rgba(226,86,59,0.14);display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:13px;height:13px;border-radius:50% 50% 50% 0;background:#e2563b;transform:rotate(45deg);"></div></div>
+            <div style="min-width:0;">
+              <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15.5px;">{{ s.name }}</div>
+              <div style="font-size:12.5px;color:#5d726c;">{{ s.count }} records · {{ s.coordLabel }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer style="border-top:1px solid rgba(20,64,59,0.12);background:rgba(255,253,247,0.5);">
+    <div style="max-width:1200px;margin:0 auto;padding:20px 22px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:12.5px;color:#5d726c;">{{ footerText }}</span>
+      <sc-if value="{{ dataSourceIsUpload }}" hint-placeholder-val="{{ false }}">
+        <button class="lk-link" onClick="{{ resetData }}" style="font-size:12.5px;font-weight:600;color:#1f7a6d;background:none;border:none;cursor:pointer;">Reset to sample data</button>
+      </sc-if>
+    </div>
+  </footer>
+
+  <!-- ================= DETAIL OVERLAY ================= -->
+  <sc-if value="{{ detailOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeDetail }}" style="position:fixed;inset:0;z-index:60;background:rgba(19,48,44,0.42);backdrop-filter:blur(3px);display:flex;justify-content:flex-end;">
+    <div onClick="{{ stop }}" class="lk-scroll" style="width:min(480px,100%);height:100%;background:#f5f1e8;overflow-y:auto;box-shadow:-30px 0 80px -40px rgba(0,0,0,0.5);">
+      <div style="position:sticky;top:0;background:linear-gradient(135deg,#13403b,#1f7a6d);color:#fdfcf7;padding:22px 24px;z-index:2;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div>
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:rgba(253,252,247,0.7);">{{ detailSpecies }}</div>
+            <div style="font-family:'Spline Sans Mono',monospace;font-weight:600;font-size:21px;margin-top:3px;letter-spacing:-0.01em;">{{ detailPit }}</div>
+          </div>
+          <button class="lk-btn" onClick="{{ closeDetail }}" style="background:rgba(255,253,247,0.16);color:#fdfcf7;border:none;width:34px;height:34px;border-radius:50%;font-size:17px;cursor:pointer;flex:none;line-height:1;">✕</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px;">
+          <span style="{{ detailEventStyle }}">{{ detailEventLabel }}</span>
+          <span style="font-size:13px;color:rgba(253,252,247,0.85);">{{ detailDateLabel }}</span>
+        </div>
+      </div>
+
+      <div style="padding:8px 24px 28px;">
+        <sc-for list="{{ detailGroups }}" as="g" hint-placeholder-count="5">
+          <div style="margin-top:22px;">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#1f7a6d;margin-bottom:10px;">{{ g.title }}</div>
+            <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:14px;overflow:hidden;">
+              <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:16px;padding:11px 15px;border-top:1px solid rgba(20,64,59,0.07);">
+                  <span style="font-size:13px;color:#5d726c;flex:none;">{{ it.label }}</span>
+                  <span style="{{ it.valStyle }}">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="position:sticky;bottom:0;background:rgba(245,241,232,0.92);backdrop-filter:blur(8px);border-top:1px solid rgba(20,64,59,0.12);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <button class="lk-btn" onClick="{{ prevDetail }}" style="font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:13.5px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);padding:9px 16px;border-radius:999px;cursor:pointer;">← Previous</button>
+        <span style="font-size:12.5px;color:#5d726c;font-weight:500;">{{ detailPosLabel }}</span>
+        <button class="lk-btn" onClick="{{ nextDetail }}" style="font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:13.5px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);padding:9px 16px;border-radius:999px;cursor:pointer;">Next →</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    view: 'dashboard',
+    records: [],
+    dataSource: 'builtin',
+    search: '',
+    filterEvent: 'All events',
+    filterCrew: 'All crew',
+    filterSpecies: 'All species',
+    sortKey: 'rec',
+    sortDir: 1,
+    page: 1,
+    detailOpen: false,
+    detailIndex: 0,
+    menuOpen: false,
+  };
+  uploadMode = 'replace';
+
+  KEY = 'sockeyetracker.records.v1';
+  PAGE_SIZE = 20;
+  C = { ink:'#16302c', teal:'#1f7a6d', teal2:'#2f9d8a', blue:'#3a7ca5', coral:'#e2563b', gold:'#cf9b46', muted:'#5d726c' };
+  CREW_COLORS = ['#1f7a6d','#3a7ca5','#2f9d8a','#cf9b46','#e2563b','#6f9c3f','#b5683c','#4a8fb0'];
+
+  SRR = { '45':'Sockeye salmon','11':'Chinook salmon','12':'Coho salmon','13':'Chum salmon','14':'Pink salmon','21':'Steelhead','22':'Rainbow trout','27':'Kokanee','32':'Bull trout','40':'Cutthroat trout' };
+  SITES = { 'OSOYOL':'Osoyoos Lake','OKANL':'Okanagan Lake','SKAHAL':'Skaha Lake','VASEUL':'Vaseux Lake','OKANR':'Okanagan River','WENATR':'Wenatchee River' };
+  CAPTURE = { 'PSEINE':'Purse seine','BSEINE':'Beach seine','EFISH':'Electrofishing','DIPNET':'Dip net','ANGL':'Angling','TRAP':'Rotary screw trap','GILL':'Gill net','FYKE':'Fyke net' };
+  MARKM = { 'HAND':'By hand','AUTO':'Automated','PITAG':'PIT injector' };
+
+  componentDidMount() {
+    let recs = window.FISH_DATA || [];
+    try {
+      const saved = localStorage.getItem(this.KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length) {
+          this.setState({ records: parsed, dataSource: 'uploaded' });
+          return;
+        }
+      }
+    } catch (e) {}
+    if (!recs.length && window.FISH_DATA) recs = window.FISH_DATA;
+    this.setState({ records: recs });
+    if (!recs.length) setTimeout(() => this.setState({ records: window.FISH_DATA || [] }), 300);
+  }
+
+  componentDidUpdate(pp, ps) {
+    if (this.state.view === 'map') this.buildMap();
+  }
+
+  // ---------- helpers ----------
+  setFileInput = (el) => { this.fileInput = el; };
+  setMapEl = (el) => { this.mapEl = el; };
+  stop = (e) => { e.stopPropagation(); };
+
+  speciesName(srr) {
+    if (!srr) return 'Unknown';
+    return this.SRR[srr.slice(0,2)] || ('Species ' + srr);
+  }
+  siteName(code) { return code ? (this.SITES[code] || code) : '—'; }
+  captureName(code) { return code ? (this.CAPTURE[code] || code) : ''; }
+  markName(code) { return code ? (this.MARKM[code] || code) : ''; }
+  prettyName(n) {
+    if (!n) return '';
+    return n.split(/\s+/).map(w => w.length === 1 ? w.toUpperCase() + '.' : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+  fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+
+  parseDate(s) {
+    if (!s) return null;
+    const m = s.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+):(\d+)\s*(AM|PM)?/i);
+    if (!m) { const d = new Date(s); return isNaN(d) ? null : d; }
+    let h = parseInt(m[4]);
+    if (m[7]) { const ap = m[7].toUpperCase(); if (ap === 'PM' && h !== 12) h += 12; if (ap === 'AM' && h === 12) h = 0; }
+    return new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]), h, parseInt(m[5]), parseInt(m[6]));
+  }
+  fmtDate(d) { return d ? d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : ''; }
+  fmtTime(d) { return d ? d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) : ''; }
+
+  eventBadge(type) {
+    const t = (type || '').toLowerCase();
+    const coral = t === 'recapture' || t === 'mortality';
+    const bg = coral ? 'rgba(226,86,59,0.14)' : 'rgba(31,122,109,0.13)';
+    const col = coral ? '#c4422a' : '#1a6a5e';
+    return 'display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:' + bg + ';color:' + col + ';white-space:nowrap;';
+  }
+
+  // ---------- CSV ----------
+  parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.length);
+    if (!lines.length) return [];
+    const parseLine = (line) => {
+      const out = []; let cur = ''; let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { if (q && line[i+1] === '"') { cur += '"'; i++; } else q = !q; }
+        else if (c === ',' && !q) { out.push(cur); cur = ''; }
+        else cur += c;
+      }
+      out.push(cur); return out;
+    };
+    const header = parseLine(lines[0]);
+    return lines.slice(1).map(l => { const r = parseLine(l); const o = {}; header.forEach((h, i) => { o[h.trim()] = (r[i] || '').trim(); }); return o; });
+  }
+  toggleMenu = () => this.setState(s => ({ menuOpen: !s.menuOpen }));
+  pickReplace = () => { this.uploadMode = 'replace'; this.setState({ menuOpen: false }); if (this.fileInput) this.fileInput.click(); };
+  pickAdd = () => { this.uploadMode = 'add'; this.setState({ menuOpen: false }); if (this.fileInput) this.fileInput.click(); };
+  onUpload = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const incoming = this.parseCSV(r.result);
+        if (!incoming.length) { alert('That file had no rows we could read.'); return; }
+        let recs, msg;
+        if (this.uploadMode === 'add') {
+          const merged = this.records.slice();
+          const sig = new Set(merged.map(x => JSON.stringify(x)));
+          let added = 0;
+          incoming.forEach(x => { const k = JSON.stringify(x); if (!sig.has(k)) { sig.add(k); merged.push(x); added++; } });
+          recs = merged;
+          msg = 'Added ' + this.fmtNum(added) + ' new records (' + this.fmtNum(incoming.length - added) + ' duplicates skipped). Total now ' + this.fmtNum(recs.length) + '.';
+        } else {
+          recs = incoming;
+        }
+        this.setState({ records: recs, dataSource: 'uploaded', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', detailOpen: false, view: 'dashboard' });
+        try { localStorage.setItem(this.KEY, JSON.stringify(recs)); } catch (err) { msg = 'Loaded ' + this.fmtNum(recs.length) + ' records (too large to save in this browser — they will reset on reload).'; }
+        if (msg) alert(msg);
+        this.map = null;
+      } catch (err) { alert('Could not read that CSV: ' + err.message); }
+    };
+    r.readAsText(f);
+    e.target.value = '';
+  };
+  resetData = () => {
+    try { localStorage.removeItem(this.KEY); } catch (e) {}
+    this.map = null;
+    this.setState({ records: window.FISH_DATA || [], dataSource: 'builtin', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', detailOpen: false });
+  };
+
+  // ---------- derived ----------
+  get records() { return this.state.records || []; }
+
+  uniqueVals(col) {
+    const s = new Set();
+    this.records.forEach(r => { const v = (r[col] || '').trim(); if (v) s.add(v); });
+    return [...s];
+  }
+
+  filtered() {
+    const s = this.state;
+    const q = s.search.trim().toLowerCase();
+    let rows = this.records.filter(r => {
+      if (s.filterEvent !== 'All events' && (r['Event Type'] || '') !== s.filterEvent) return false;
+      if (s.filterCrew !== 'All crew' && this.prettyName(r['Tagger']) !== s.filterCrew) return false;
+      if (s.filterSpecies !== 'All species' && this.speciesName(r['SRR Code']) !== s.filterSpecies) return false;
+      if (q) {
+        const hay = [r['PIT Tag'], r['Record#'], r['Tagger'], r['Text Comments'], r['Conditional Comments'], r['Event Type'], r['Event Site']].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    const dir = s.sortDir;
+    rows.sort((a, b) => {
+      let av, bv;
+      if (s.sortKey === 'rec') { av = parseFloat(a['Record#']) || 0; bv = parseFloat(b['Record#']) || 0; }
+      else if (s.sortKey === 'date') { av = (this.parseDate(a['Event Date']) || 0) && this.parseDate(a['Event Date']).getTime(); bv = (this.parseDate(b['Event Date']) || 0) && this.parseDate(b['Event Date']).getTime(); av = av || 0; bv = bv || 0; }
+      else if (s.sortKey === 'crew') { av = (a['Tagger'] || ''); bv = (b['Tagger'] || ''); }
+      else { av = (a['Event Type'] || ''); bv = (b['Event Type'] || ''); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return rows;
+  }
+
+  deriveSites() {
+    const map = {};
+    this.records.forEach(r => {
+      const lat = parseFloat(r['Latitude']); const lng = parseFloat(r['Longitude']);
+      if (isNaN(lat) || isNaN(lng)) return;
+      const site = r['Event Site'] || 'Site';
+      const key = site + '@' + lat.toFixed(3) + ',' + lng.toFixed(3);
+      if (!map[key]) map[key] = { name: this.siteName(site), lat: 0, lng: 0, count: 0, _la: 0, _lo: 0 };
+      const o = map[key]; o.count++; o._la += lat; o._lo += lng; o.lat = o._la / o.count; o.lng = o._lo / o.count;
+    });
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }
+
+  buildMap() {
+    if (!window.L) { clearTimeout(this._mt); this._mt = setTimeout(() => this.buildMap(), 220); return; }
+    const el = this.mapEl; if (!el) return;
+    const token = this.records.length + ':' + this.state.dataSource;
+    if (this.map && this._mapToken === token) { this.map.invalidateSize(); return; }
+    if (!this.map) {
+      this.map = L.map(el, { scrollWheelZoom: false, attributionControl: true }).setView([49.04, -119.44], 12);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19
+      }).addTo(this.map);
+    }
+    if (this.markerLayer) this.map.removeLayer(this.markerLayer);
+    this.markerLayer = L.layerGroup().addTo(this.map);
+    const sites = this.deriveSites();
+    const pts = [];
+    const max = Math.max(1, ...sites.map(s => s.count));
+    sites.forEach(s => {
+      const radius = 9 + 26 * Math.sqrt(s.count / max);
+      const m = L.circleMarker([s.lat, s.lng], { radius, color: '#c4422a', weight: 2, fillColor: '#e2563b', fillOpacity: 0.5 });
+      m.bindPopup('<b style="font-family:sans-serif;">' + s.name + '</b><br><span style="font-family:sans-serif;color:#5d726c;">' + this.fmtNum(s.count) + ' records</span>');
+      m.addTo(this.markerLayer); pts.push([s.lat, s.lng]);
+    });
+    if (pts.length === 1) this.map.setView(pts[0], 13);
+    else if (pts.length > 1) this.map.fitBounds(pts, { padding: [50, 50] });
+    this._mapToken = token;
+    setTimeout(() => this.map && this.map.invalidateSize(), 60);
+  }
+
+  // ---------- detail ----------
+  FIELD_GROUPS = [
+    ['Identification', ['PIT Tag','SRR Code','Record#','Session','Project Code','Second PIT Tag','Coded-Wire Tag','Genetic ID','Acoustic Tag','Radio Tag','Scale ID','Other Tag']],
+    ['Event', ['Event Type','Event Date','Event Date (PST)','Life Stage','Capture Method','Mark Method']],
+    ['Biology', ['Length','Weight','Brood Year','Migration Year','Spawn Year']],
+    ['Location', ['Event Site','Release Site','Latitude','Longitude','RKM Mask','RKM Ext','Lat/Long Source']],
+    ['Conditions & release', ['Release Date','Release Date (PST)','Release Temp','Mark Temp','Hold Temp','Raceway/Transect/Tank','Hatchery','Stock']],
+    ['Crew & organization', ['Tagger','Organization']],
+    ['Notes', ['Session Message','Session Note','Conditional Comments','Text Comments','Detail Note']],
+  ];
+  fieldLabel(c) {
+    const m = { 'SRR Code':'Species (SRR)', 'RKM Mask':'River km', 'RKM Ext':'River km (ext)', 'Lat/Long Source':'Coords source', 'Record#':'Record #', 'Raceway/Transect/Tank':'Raceway / tank' };
+    return m[c] || c;
+  }
+  prettyVal(c, v) {
+    if (!v) return '';
+    if (c === 'SRR Code') return this.speciesName(v) + '  ·  ' + v;
+    if (c === 'Event Site' || c === 'Release Site') return this.siteName(v);
+    if (c === 'Capture Method') return this.captureName(v);
+    if (c === 'Mark Method') return this.markName(v);
+    if (c === 'Tagger') return this.prettyName(v);
+    if (/Date/.test(c)) { const d = this.parseDate(v); if (d) return this.fmtDate(d) + ', ' + this.fmtTime(d); }
+    if (c === 'Release Temp' || c === 'Mark Temp' || c === 'Hold Temp') return v + ' °C';
+    if (c === 'Length') return v + ' mm';
+    if (c === 'Weight') return v + ' g';
+    return v;
+  }
+  isMono(c) { return /PIT Tag|Tag$|Latitude|Longitude|Genetic ID|Record#|Session$|RKM/.test(c); }
+
+  openRow(i) { this.setState({ detailOpen: true, detailIndex: i }); }
+  closeDetail = () => this.setState({ detailOpen: false });
+  prevDetail = () => this.setState(s => ({ detailIndex: Math.max(0, s.detailIndex - 1) }));
+  nextDetail = () => this.setState(s => ({ detailIndex: Math.min(this.filtered().length - 1, s.detailIndex + 1) }));
+
+  // ---------- render ----------
+  renderVals() {
+    const C = this.C;
+    const recs = this.records;
+    const total = recs.length;
+
+    // nav
+    const tabs = [['dashboard','Overview'],['table','Explore'],['charts','Charts'],['map','Map']];
+    const navItems = tabs.map(([key, label]) => {
+      const active = this.state.view === key;
+      return {
+        key, label,
+        onClick: () => { this.setState({ view: key }); },
+        style: 'font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;font-size:13.5px;border:none;cursor:pointer;padding:8px 16px;border-radius:999px;transition:all .15s;'
+          + (active ? 'background:#16302c;color:#fffdf7;' : 'background:transparent;color:#5d726c;'),
+      };
+    });
+
+    // meta
+    const speciesList = this.uniqueVals('SRR Code').map(c => this.speciesName(c));
+    const speciesUniq = [...new Set(speciesList)];
+    const sites = this.uniqueVals('Event Site').map(c => this.siteName(c));
+    const sitesUniq = [...new Set(sites)];
+    const crew = [...new Set(this.uniqueVals('Tagger').map(t => this.prettyName(t)))];
+    const sessions = this.uniqueVals('Session');
+    const dates = recs.map(r => this.parseDate(r['Event Date'])).filter(Boolean).sort((a, b) => a - b);
+    const dateLabel = dates.length ? (this.fmtDate(dates[0]) === this.fmtDate(dates[dates.length-1]) ? this.fmtDate(dates[0]) : this.fmtDate(dates[0]) + ' – ' + this.fmtDate(dates[dates.length-1])) : '—';
+    const marks = recs.filter(r => (r['Event Type'] || '').toLowerCase() === 'mark').length;
+    const recaps = recs.filter(r => (r['Event Type'] || '').toLowerCase() === 'recapture').length;
+    const others = total - marks - recaps;
+    const primarySpecies = speciesUniq.length === 1 ? speciesUniq[0] : (speciesUniq.length + ' species');
+    const lifeStage = (this.uniqueVals('Life Stage')[0] || '').toLowerCase();
+
+    const appTitle = (speciesUniq.length === 1 ? speciesUniq[0].replace(' salmon','') : 'Fish') + ' Tracker';
+    const sessionMsg = (recs[0] && recs[0]['Session Message']) || 'Community fish data explorer';
+
+    // hero
+    const heroHeadline = total
+      ? this.fmtNum(total) + ' ' + (lifeStage ? lifeStage + ' ' : '') + (speciesUniq.length === 1 ? speciesUniq[0].toLowerCase() : 'fish') + ' tracked'
+      : 'No records yet';
+    const storyText = total
+      ? 'Between ' + dateLabel + ', a crew of ' + crew.length + ' recorded ' + this.fmtNum(total) + ' ' + (speciesUniq.length === 1 ? speciesUniq[0].toLowerCase() : 'fish') + ' events across ' + sitesUniq.length + ' ' + (sitesUniq.length === 1 ? 'site' : 'sites') + '. Every fish carries a unique PIT tag, so it can be recognised again whenever and wherever it turns up.'
+      : 'Use “Update data” to load a CSV export and this page will fill in automatically.';
+
+    const heroFacts = [
+      { label: 'Dates', value: dateLabel },
+      { label: sitesUniq.length === 1 ? 'Site' : 'Sites', value: sitesUniq.length === 1 ? sitesUniq[0] : sitesUniq.length },
+      { label: 'Species', value: primarySpecies },
+      { label: 'Field crew', value: crew.length },
+    ];
+
+    const statTiles = [
+      { label: 'Field crew', value: this.fmtNum(crew.length), sub: crew.length === 1 ? 'person' : 'people tagging', color: C.ink },
+      { label: 'Recaptures', value: this.fmtNum(recaps), sub: 'fish seen again', color: C.coral },
+      { label: 'Species', value: this.fmtNum(speciesUniq.length), sub: primarySpecies, color: C.ink },
+      { label: 'Sites', value: this.fmtNum(sitesUniq.length), sub: sitesUniq.length === 1 ? sitesUniq[0] : 'locations', color: C.ink },
+      { label: 'Sessions', value: this.fmtNum(sessions.length), sub: 'field sessions', color: C.ink },
+    ];
+
+    // activity chart — bin by hour (single day), day (<=31 days), or month (longer spans)
+    const distinctDays = [...new Set(dates.map(d => d.toDateString()))];
+    let actEntries = []; let activityUnit;
+    if (distinctDays.length <= 1) {
+      activityUnit = 'hour';
+      const m = {};
+      recs.forEach(r => { const d = this.parseDate(r['Event Date']); if (d) m[d.getHours()] = (m[d.getHours()] || 0) + 1; });
+      const hrs = Object.keys(m).map(Number).sort((a, b) => a - b);
+      if (hrs.length) { for (let h = hrs[0]; h <= hrs[hrs.length-1]; h++) actEntries.push([((h % 12) || 12) + (h < 12 ? 'a' : 'p'), m[h] || 0]); }
+    } else if (distinctDays.length <= 31) {
+      activityUnit = 'day';
+      const m = {};
+      recs.forEach(r => { const d = this.parseDate(r['Event Date']); if (d) { const k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); (m[k] = m[k] || { n: 0, d }).n++; } });
+      actEntries = Object.values(m).sort((a, b) => a.d - b.d).map(o => [o.d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), o.n]);
+    } else {
+      activityUnit = 'month';
+      const m = {};
+      recs.forEach(r => { const d = this.parseDate(r['Event Date']); if (d) { const k = d.getFullYear() * 12 + d.getMonth(); (m[k] = m[k] || { n: 0, d: new Date(d.getFullYear(), d.getMonth(), 1) }).n++; } });
+      actEntries = Object.values(m).sort((a, b) => a.d - b.d).map(o => [o.d.toLocaleDateString('en-US', { month: 'short' }) + ' \u2019' + String(o.d.getFullYear()).slice(2), o.n]);
+    }
+    const actMax = Math.max(1, ...actEntries.map(e => e[1]));
+    const peakA = actEntries.reduce((m, e) => e[1] > m[1] ? e : m, ['', 0]);
+    const labelStep = Math.ceil(actEntries.length / 16);
+    const chartActivity = {
+      peakText: actEntries.length ? ('Busiest ' + activityUnit + ': ' + peakA[0] + ' (' + this.fmtNum(peakA[1]) + ')') : '',
+      bars: actEntries.map(([label, v], i) => ({
+        label: (i % labelStep === 0 || i === actEntries.length - 1) ? label : '',
+        value: this.fmtNum(v),
+        barStyle: 'width:100%;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#2f9d8a,#1f7a6d);height:' + Math.max(4, (v / actMax) * 100) + '%;min-height:4px;',
+      })),
+    };
+
+    // crew chart
+    const crewCount = {};
+    recs.forEach(r => { const n = this.prettyName(r['Tagger']); if (n) crewCount[n] = (crewCount[n] || 0) + 1; });
+    const crewEntries = Object.entries(crewCount).sort((a, b) => b[1] - a[1]);
+    const crewMax = Math.max(1, ...crewEntries.map(e => e[1]));
+    const chartCrew = crewEntries.map(([name, v], i) => ({
+      name, value: this.fmtNum(v),
+      fillStyle: 'height:100%;border-radius:7px;background:' + this.CREW_COLORS[i % this.CREW_COLORS.length] + ';width:' + Math.max(3, (v / crewMax) * 100) + '%;',
+    }));
+
+    // event split
+    const eMax = Math.max(1, total);
+    const eventSplit = {
+      markLabel: this.fmtNum(marks) + (total ? '  ·  ' + Math.round(marks / eMax * 100) + '%' : ''),
+      recapLabel: this.fmtNum(recaps + others) + (total ? '  ·  ' + Math.round((recaps + others) / eMax * 100) + '%' : ''),
+      segMarkStyle: 'height:100%;background:#1f7a6d;width:' + (marks / eMax * 100) + '%;',
+      segRecapStyle: 'height:100%;background:#e2563b;width:' + ((recaps + others) / eMax * 100) + '%;',
+      note: recaps ? (this.fmtNum(recaps) + ' tagged fish ' + (recaps === 1 ? 'was' : 'were') + ' encountered a second time — a recapture.') : 'Marks are first-time taggings. Recaptures appear once tagged fish are seen again.',
+    };
+
+    // breakdown chart (species if >1, else by site, else by capture method)
+    let breakdownTitle, breakdownCol, breakdownFn;
+    if (speciesUniq.length > 1) { breakdownTitle = 'Records by species'; breakdownFn = r => this.speciesName(r['SRR Code']); }
+    else if (sitesUniq.length > 1) { breakdownTitle = 'Records by site'; breakdownFn = r => this.siteName(r['Event Site']); }
+    else { breakdownTitle = 'Records by capture method'; breakdownFn = r => this.captureName(r['Capture Method']) || '—'; }
+    const bdCount = {};
+    recs.forEach(r => { const k = breakdownFn(r); if (k) bdCount[k] = (bdCount[k] || 0) + 1; });
+    const bdEntries = Object.entries(bdCount).sort((a, b) => b[1] - a[1]);
+    const bdMax = Math.max(1, ...bdEntries.map(e => e[1]));
+    const chartBreakdown = bdEntries.map(([name, v], i) => ({
+      name, value: this.fmtNum(v),
+      fillStyle: 'height:100%;border-radius:7px;background:' + [C.blue, C.teal, C.teal2, C.gold, C.coral][i % 5] + ';width:' + Math.max(3, (v / bdMax) * 100) + '%;',
+    }));
+
+    // length histogram
+    const lengths = recs.map(r => parseFloat(r['Length'])).filter(v => !isNaN(v));
+    const hasMeasure = lengths.length > 0;
+    let lengthHist = { bars: [], caption: '' };
+    if (hasMeasure) {
+      const lo = Math.min(...lengths), hi = Math.max(...lengths);
+      const nB = 8; const span = (hi - lo) || 1; const w = span / nB;
+      const buckets = new Array(nB).fill(0);
+      lengths.forEach(v => { let b = Math.floor((v - lo) / w); if (b >= nB) b = nB - 1; if (b < 0) b = 0; buckets[b]++; });
+      const bMax = Math.max(1, ...buckets);
+      const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+      lengthHist = {
+        caption: lengths.length + ' measured · ' + Math.round(lo) + '–' + Math.round(hi) + ' mm · avg ' + Math.round(avg) + ' mm',
+        bars: buckets.map((v, i) => ({
+          label: Math.round(lo + i * w) + '',
+          barStyle: 'width:100%;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#3a7ca5,#2f6f93);height:' + Math.max(4, (v / bMax) * 100) + '%;min-height:4px;',
+        })),
+      };
+    }
+
+    // ---- table ----
+    const filtered = this.filtered();
+    const filteredCount = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(filteredCount / this.PAGE_SIZE));
+    const page = Math.min(this.state.page, totalPages);
+    const start = (page - 1) * this.PAGE_SIZE;
+    const pageSlice = filtered.slice(start, start + this.PAGE_SIZE);
+    const pageRows = pageSlice.map((r, idx) => {
+      const fi = start + idx;
+      const d = this.parseDate(r['Event Date']);
+      return {
+        open: () => this.openRow(fi),
+        recNum: r['Record#'] || '—',
+        pitTag: r['PIT Tag'] || '—',
+        species: this.speciesName(r['SRR Code']),
+        eventLabel: r['Event Type'] || '—',
+        eventStyle: this.eventBadge(r['Event Type']),
+        dateLabel: this.fmtDate(d) || '—',
+        timeLabel: this.fmtTime(d),
+        site: this.siteName(r['Event Site']),
+        crew: this.prettyName(r['Tagger']) || '—',
+      };
+    });
+
+    const sortDef = [['recNum','Record #','rec'],['pit','PIT tag',null],['species','Species',null],['event','Event','event'],['date','Date','date'],['site','Site',null],['crew','Crew','crew']];
+    const headerCols = sortDef.map(([_, label, key]) => {
+      const active = key && this.state.sortKey === key;
+      const arrow = active ? (this.state.sortDir === 1 ? '  ↑' : '  ↓') : '';
+      return {
+        label, arrow,
+        onClick: key ? (() => this.setState(s => ({ sortKey: key, sortDir: s.sortKey === key ? -s.sortDir : 1, page: 1 }))) : undefined,
+        style: 'text-align:left;padding:13px 14px;font-size:11.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:' + (active ? '#1a6a5e' : '#5d726c') + ';white-space:nowrap;position:sticky;top:0;background:#eaf1ef;' + (key ? 'cursor:pointer;' : ''),
+      };
+    });
+
+    const eventOptions = ['All events', ...this.uniqueVals('Event Type')];
+    const crewOptions = ['All crew', ...crew];
+    const speciesOptions = ['All species', ...speciesUniq];
+
+    const resultLabel = filteredCount === total
+      ? this.fmtNum(total) + ' records · tap any row for the full story'
+      : this.fmtNum(filteredCount) + ' of ' + this.fmtNum(total) + ' records match';
+    const pageLabel = filteredCount ? ('Showing ' + this.fmtNum(start + 1) + '–' + this.fmtNum(Math.min(start + this.PAGE_SIZE, filteredCount)) + ' of ' + this.fmtNum(filteredCount)) : 'No matching records';
+    const pgBtn = (on) => 'font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;font-size:13.5px;padding:9px 16px;border-radius:999px;border:1px solid rgba(20,64,59,0.14);' + (on ? 'background:#fffdf7;color:#16302c;cursor:pointer;' : 'background:rgba(20,64,59,0.04);color:#b6c1bd;cursor:not-allowed;');
+
+    // ---- map ----
+    const siteData = this.deriveSites();
+    const siteList = siteData.map(s => ({ name: s.name, count: this.fmtNum(s.count), coordLabel: s.lat.toFixed(4) + ', ' + s.lng.toFixed(4) }));
+    const mapNote = siteData.length > 1
+      ? siteData.length + ' sites — circle size shows how many records came from each.'
+      : (siteData.length === 1 ? 'All records cluster at one site on ' + (sitesUniq[0] || 'the water') + '. Zoom in to see the exact spot.' : 'No location data in these records.');
+
+    // ---- detail ----
+    const dr = filtered[Math.min(this.state.detailIndex, Math.max(0, filtered.length - 1))];
+    let detailGroups = [], detailPit = '', detailSpecies = '', detailEventLabel = '', detailEventStyle = '', detailDateLabel = '', detailPosLabel = '';
+    if (dr) {
+      detailPit = dr['PIT Tag'] || '—';
+      detailSpecies = this.speciesName(dr['SRR Code']);
+      detailEventLabel = dr['Event Type'] || '—';
+      detailEventStyle = this.eventBadge(dr['Event Type']).replace('rgba(31,122,109,0.13)','rgba(255,253,247,0.18)').replace('#1a6a5e','#fdfcf7').replace('rgba(226,86,59,0.14)','rgba(255,253,247,0.22)').replace('#c4422a','#ffe3da');
+      const dd = this.parseDate(dr['Event Date']);
+      detailDateLabel = dd ? this.fmtDate(dd) + ' · ' + this.fmtTime(dd) : '';
+      detailPosLabel = 'Record ' + this.fmtNum(this.state.detailIndex + 1) + ' of ' + this.fmtNum(filtered.length);
+      detailGroups = this.FIELD_GROUPS.map(([title, cols]) => {
+        const items = cols.filter(c => (dr[c] || '').trim()).map(c => ({
+          label: this.fieldLabel(c),
+          value: this.prettyVal(c, dr[c]),
+          valStyle: 'font-size:13.5px;font-weight:600;color:#16302c;text-align:right;' + (this.isMono(c) ? 'font-family:\'Spline Sans Mono\',monospace;font-weight:500;font-size:12.5px;' : ''),
+        }));
+        return { title, items };
+      }).filter(g => g.items.length);
+    }
+
+    return {
+      appTitle, appSubtitle: sessionMsg.length > 60 ? sessionMsg.slice(0, 58) + '…' : sessionMsg,
+      navItems,
+      isDash: this.state.view === 'dashboard', isTable: this.state.view === 'table', isCharts: this.state.view === 'charts', isMap: this.state.view === 'map',
+      dataSourceLabel: this.state.dataSource === 'uploaded' ? 'Your uploaded data' : 'Built-in sample data',
+      dataSourceIsUpload: this.state.dataSource === 'uploaded',
+      dataDotColor: this.state.dataSource === 'uploaded' ? '#e2563b' : '#1f7a6d',
+      toggleMenu: this.toggleMenu, menuOpen: this.state.menuOpen, pickAdd: this.pickAdd, pickReplace: this.pickReplace,
+      setFileInput: this.setFileInput, onUpload: this.onUpload, resetData: this.resetData,
+      goTable: () => this.setState({ view: 'table' }), goMap: () => this.setState({ view: 'map' }),
+
+      heroBadge: 'Open fish data · ' + (this.uniqueVals('Project Code')[0] || 'Community'),
+      heroHeadline, storyText, heroFacts,
+      heroCount: this.fmtNum(total), heroCountLabel: 'records on file',
+      statTiles, chartActivity, chartCrew, eventSplit,
+      breakdownTitle, chartBreakdown,
+      hasMeasure, noMeasure: !hasMeasure, lengthHist,
+
+      search: this.state.search,
+      onSearch: (e) => this.setState({ search: e.target.value, page: 1 }),
+      filterEvent: this.state.filterEvent, filterCrew: this.state.filterCrew, filterSpecies: this.state.filterSpecies,
+      onEventChange: (e) => this.setState({ filterEvent: e.target.value, page: 1 }),
+      onCrewChange: (e) => this.setState({ filterCrew: e.target.value, page: 1 }),
+      onSpeciesChange: (e) => this.setState({ filterSpecies: e.target.value, page: 1 }),
+      clearFilters: () => this.setState({ search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', page: 1 }),
+      eventOptions, crewOptions, speciesOptions,
+      headerCols, pageRows, resultLabel, pageLabel,
+      prevPage: () => this.setState(s => ({ page: Math.max(1, s.page - 1) })),
+      nextPage: () => this.setState(s => ({ page: Math.min(totalPages, s.page + 1) })),
+      prevStyle: pgBtn(page > 1), nextStyle: pgBtn(page < totalPages),
+
+      setMapEl: this.setMapEl, siteList, mapNote,
+
+      detailOpen: this.state.detailOpen && !!dr, closeDetail: this.closeDetail, prevDetail: this.prevDetail, nextDetail: this.nextDetail, stop: this.stop,
+      detailPit, detailSpecies, detailEventLabel, detailEventStyle, detailDateLabel, detailPosLabel, detailGroups,
+
+      footerText: 'Open data explorer · built to be hosted free on GitHub Pages · ' + this.fmtNum(total) + ' records loaded',
+    };
+  }
+}
+</script>
+</body>
+</html>
