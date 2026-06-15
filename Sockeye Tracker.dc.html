@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="./fish-data.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #f5f1e8; color: #16302c; font-family: 'Hanken Grotesk', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgba(226,86,59,0.22); }
+  .lk-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+  .lk-scroll::-webkit-scrollbar-thumb { background: rgba(20,64,59,0.18); border-radius: 8px; }
+  .lk-row:hover { background: rgba(31,122,109,0.06) !important; }
+  .lk-tab:hover { color: #16302c !important; }
+  .lk-btn:hover { filter: brightness(1.05); }
+  .lk-link:hover { text-decoration: underline; }
+  @keyframes lkfloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  .leaflet-container { font-family: 'Hanken Grotesk', sans-serif; border-radius: 18px; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;">
+
+  <!-- NAV -->
+  <header style="position:sticky;top:0;z-index:40;background:rgba(245,241,232,0.86);backdrop-filter:blur(12px);border-bottom:1px solid rgba(20,64,59,0.12);">
+    <div style="max-width:1200px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:12px;margin-right:auto;">
+        <div style="width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 32% 30%, #2f9d8a, #1f7a6d 70%);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px -4px rgba(31,122,109,0.6);flex:none;">
+          <div style="width:14px;height:14px;border-radius:50% 50% 50% 0;background:#e2563b;transform:rotate(45deg);"></div>
+        </div>
+        <div style="line-height:1.05;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:18px;letter-spacing:-0.02em;">{{ appTitle }}</div>
+          <div style="font-size:12px;color:#5d726c;font-weight:500;">{{ appSubtitle }}</div>
+        </div>
+      </div>
+
+      <nav style="display:flex;gap:4px;background:rgba(255,253,247,0.7);border:1px solid rgba(20,64,59,0.10);padding:4px;border-radius:999px;">
+        <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="4">
+          <button class="lk-tab" onClick="{{ item.onClick }}" style="{{ item.style }}">{{ item.label }}</button>
+        </sc-for>
+      </nav>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#5d726c;background:rgba(255,253,247,0.7);border:1px solid rgba(20,64,59,0.10);padding:6px 11px;border-radius:999px;">
+          <span style="width:7px;height:7px;border-radius:50%;background:{{ dataDotColor }};flex:none;"></span>
+          {{ dataSourceLabel }}
+        </div>
+        <div style="position:relative;">
+          <button class="lk-btn" onClick="{{ toggleMenu }}" style="font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:13px;color:#fffdf7;background:#1f7a6d;border:none;padding:9px 15px;border-radius:999px;cursor:pointer;box-shadow:0 4px 12px -4px rgba(31,122,109,0.7);">Update data ▾</button>
+          <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;right:0;top:46px;width:248px;background:#fffdf7;border:1px solid rgba(20,64,59,0.12);border-radius:14px;box-shadow:0 22px 50px -22px rgba(20,48,44,0.55);padding:6px;z-index:50;">
+              <button class="lk-row" onClick="{{ pickAdd }}" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:11px 12px;border-radius:10px;font-family:'Hanken Grotesk',sans-serif;">
+                <div style="font-weight:600;font-size:13.5px;color:#16302c;">＋ Add records to current</div>
+                <div style="font-size:12px;color:#5d726c;margin-top:1px;">Append a CSV, keep what's loaded</div>
+              </button>
+              <button class="lk-row" onClick="{{ pickReplace }}" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:11px 12px;border-radius:10px;font-family:'Hanken Grotesk',sans-serif;">
+                <div style="font-weight:600;font-size:13.5px;color:#16302c;">↺ Replace all data</div>
+                <div style="font-size:12px;color:#5d726c;margin-top:1px;">Swap in a fresh CSV</div>
+              </button>
+            </div>
+          </sc-if>
+          <input type="file" accept=".csv,text/csv" ref="{{ setFileInput }}" onChange="{{ onUpload }}" style="display:none;">
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main style="flex:1;width:100%;max-width:1200px;margin:0 auto;padding:26px 22px 60px;">
+
+    <!-- ================= OVERVIEW ================= -->
+    <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <!-- HERO -->
+      <div style="position:relative;overflow:hidden;border-radius:26px;background:linear-gradient(135deg,#13403b 0%,#1f7a6d 52%,#2f7fae 120%);color:#fdfcf7;padding:38px 36px;box-shadow:0 24px 60px -34px rgba(19,64,59,0.9);">
+        <div style="position:absolute;top:-70px;right:-40px;width:240px;height:240px;border-radius:50%;background:rgba(255,253,247,0.08);"></div>
+        <div style="position:absolute;bottom:-90px;right:120px;width:170px;height:170px;border-radius:50%;background:rgba(226,86,59,0.16);"></div>
+        <div style="position:relative;display:flex;justify-content:space-between;align-items:flex-end;gap:28px;flex-wrap:wrap;">
+          <div style="max-width:560px;">
+            <div style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;background:rgba(255,253,247,0.14);padding:6px 12px;border-radius:999px;margin-bottom:16px;">{{ heroBadge }}</div>
+            <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:38px;line-height:1.05;letter-spacing:-0.025em;margin:0 0 14px;text-wrap:balance;">{{ heroHeadline }}</h1>
+            <p style="font-size:16px;line-height:1.5;color:rgba(253,252,247,0.85);margin:0 0 22px;text-wrap:pretty;">{{ storyText }}</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <sc-for list="{{ heroFacts }}" as="f" hint-placeholder-count="4">
+                <div style="display:flex;flex-direction:column;gap:1px;background:rgba(255,253,247,0.12);border:1px solid rgba(255,253,247,0.18);padding:9px 14px;border-radius:14px;">
+                  <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:rgba(253,252,247,0.7);">{{ f.label }}</span>
+                  <span style="font-size:15px;font-weight:600;">{{ f.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="text-align:right;flex:none;">
+            <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:72px;line-height:0.9;letter-spacing:-0.03em;">{{ heroCount }}</div>
+            <div style="font-size:14px;font-weight:600;color:rgba(253,252,247,0.85);margin-top:4px;">{{ heroCountLabel }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STAT TILES -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-top:18px;">
+        <sc-for list="{{ statTiles }}" as="t" hint-placeholder-count="5">
+          <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:18px;padding:18px 18px 16px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.03em;text-transform:uppercase;color:#5d726c;">{{ t.label }}</div>
+            <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px;letter-spacing:-0.02em;margin-top:6px;color:{{ t.color }};">{{ t.value }}</div>
+            <div style="font-size:13px;color:#5d726c;margin-top:1px;">{{ t.sub }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- ACTIVITY + EVENT SPLIT -->
+      <div style="display:grid;grid-template-columns:1.7fr 1fr;gap:16px;margin-top:18px;">
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:22px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);min-width:0;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;">
+            <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0;">Tagging activity</h3>
+            <span style="font-size:12.5px;color:#5d726c;font-weight:500;">{{ chartActivity.peakText }}</span>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:5px;height:170px;padding-top:14px;">
+            <sc-for list="{{ chartActivity.bars }}" as="b" hint-placeholder-count="12">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0;">
+                <div title="{{ b.value }}" style="{{ b.barStyle }}"></div>
+                <span style="font-size:10px;color:#5d726c;font-weight:500;white-space:nowrap;">{{ b.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:22px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 16px;">Event types</h3>
+          <div style="display:flex;height:16px;border-radius:999px;overflow:hidden;background:rgba(20,64,59,0.06);">
+            <div style="{{ eventSplit.segMarkStyle }}"></div>
+            <div style="{{ eventSplit.segRecapStyle }}"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;margin-top:18px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#1f7a6d;flex:none;"></span>
+              <span style="font-size:14px;font-weight:600;">Mark</span>
+              <span style="margin-left:auto;font-size:14px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;">{{ eventSplit.markLabel }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="width:11px;height:11px;border-radius:3px;background:#e2563b;flex:none;"></span>
+              <span style="font-size:14px;font-weight:600;">Recapture</span>
+              <span style="margin-left:auto;font-size:14px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;">{{ eventSplit.recapLabel }}</span>
+            </div>
+          </div>
+          <p style="font-size:12.5px;line-height:1.45;color:#5d726c;margin:16px 0 0;border-top:1px solid rgba(20,64,59,0.10);padding-top:12px;">{{ eventSplit.note }}</p>
+        </div>
+      </div>
+
+      <!-- CREW -->
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:22px;margin-top:16px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 18px;">Field crew contributions</h3>
+        <div style="display:flex;flex-direction:column;gap:13px;">
+          <sc-for list="{{ chartCrew }}" as="c" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:120px;font-size:13.5px;font-weight:600;flex:none;text-align:right;">{{ c.name }}</div>
+              <div style="flex:1;height:22px;background:rgba(20,64,59,0.05);border-radius:8px;overflow:hidden;">
+                <div style="{{ c.fillStyle }}"></div>
+              </div>
+              <div style="width:46px;font-size:13.5px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;flex:none;">{{ c.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;">
+        <button class="lk-btn" onClick="{{ goTable }}" style="flex:1;min-width:200px;text-align:left;cursor:pointer;border:1px solid rgba(20,64,59,0.12);background:#fffdf7;border-radius:18px;padding:18px 20px;font-family:'Hanken Grotesk',sans-serif;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;color:#16302c;">Explore every record →</div>
+          <div style="font-size:13px;color:#5d726c;margin-top:3px;">Search, filter and sort all {{ heroCount }} entries</div>
+        </button>
+        <button class="lk-btn" onClick="{{ goMap }}" style="flex:1;min-width:200px;text-align:left;cursor:pointer;border:1px solid rgba(20,64,59,0.12);background:#fffdf7;border-radius:18px;padding:18px 20px;font-family:'Hanken Grotesk',sans-serif;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;color:#16302c;">See it on the map →</div>
+          <div style="font-size:13px;color:#5d726c;margin-top:3px;">Where the fish were caught and released</div>
+        </button>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ================= EXPLORE / TABLE ================= -->
+    <sc-if value="{{ isTable }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="margin-bottom:18px;">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin:0 0 4px;">Explore the records</h2>
+        <p style="font-size:14.5px;color:#5d726c;margin:0;">{{ resultLabel }}</p>
+      </div>
+
+      <!-- toolbar -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+        <div style="position:relative;flex:1;min-width:220px;">
+          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#9aa8a3;font-size:15px;">⌕</span>
+          <input value="{{ search }}" onInput="{{ onSearch }}" placeholder="Search PIT tag, record #, crew…" style="width:100%;font-family:'Hanken Grotesk',sans-serif;font-size:14px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 14px 11px 34px;outline:none;">
+        </div>
+        <select value="{{ filterEvent }}" onChange="{{ onEventChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ eventOptions }}" as="o" hint-placeholder-count="3"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <select value="{{ filterCrew }}" onChange="{{ onCrewChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ crewOptions }}" as="o" hint-placeholder-count="5"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <select value="{{ filterSpecies }}" onChange="{{ onSpeciesChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ speciesOptions }}" as="o" hint-placeholder-count="2"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <button class="lk-link" onClick="{{ clearFilters }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13px;font-weight:600;color:#1f7a6d;background:none;border:none;cursor:pointer;padding:6px;">Clear</button>
+      </div>
+
+      <!-- table -->
+      <div class="lk-scroll" style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:18px;overflow:auto;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <table style="width:100%;border-collapse:collapse;font-size:13.5px;min-width:760px;">
+          <thead>
+            <tr style="background:rgba(31,122,109,0.07);">
+              <sc-for list="{{ headerCols }}" as="h" hint-placeholder-count="7">
+                <th onClick="{{ h.onClick }}" style="{{ h.style }}">{{ h.label }}{{ h.arrow }}</th>
+              </sc-for>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ pageRows }}" as="r" hint-placeholder-count="10">
+              <tr class="lk-row" onClick="{{ r.open }}" style="cursor:pointer;border-top:1px solid rgba(20,64,59,0.08);">
+                <td style="padding:12px 14px;color:#5d726c;font-weight:600;">{{ r.recNum }}</td>
+                <td style="padding:12px 14px;font-family:'Spline Sans Mono',monospace;font-size:12.5px;color:#16302c;">{{ r.pitTag }}</td>
+                <td style="padding:12px 14px;font-weight:600;">{{ r.species }}</td>
+                <td style="padding:12px 14px;"><span style="{{ r.eventStyle }}">{{ r.eventLabel }}</span></td>
+                <td style="padding:12px 14px;color:#16302c;">{{ r.dateLabel }}<span style="color:#9aa8a3;"> · {{ r.timeLabel }}</span></td>
+                <td style="padding:12px 14px;color:#16302c;">{{ r.site }}</td>
+                <td style="padding:12px 14px;color:#5d726c;">{{ r.crew }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- pagination -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:16px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:#5d726c;">{{ pageLabel }}</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="lk-btn" onClick="{{ prevPage }}" style="{{ prevStyle }}">← Prev</button>
+          <button class="lk-btn" onClick="{{ nextPage }}" style="{{ nextStyle }}">Next →</button>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ================= CHARTS ================= -->
+    <sc-if value="{{ isCharts }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="margin-bottom:18px;">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin:0 0 4px;">The data at a glance</h2>
+        <p style="font-size:14.5px;color:#5d726c;margin:0;">Simple charts anyone can read — no spreadsheets required.</p>
+      </div>
+
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px;">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0;">When were fish handled?</h3>
+          <span style="font-size:12.5px;color:#5d726c;font-weight:500;">{{ chartActivity.peakText }}</span>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:6px;height:200px;padding-top:14px;">
+          <sc-for list="{{ chartActivity.bars }}" as="b" hint-placeholder-count="12">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0;">
+              <span style="font-size:10.5px;font-weight:700;color:#1f7a6d;font-family:'Bricolage Grotesque',sans-serif;">{{ b.value }}</span>
+              <div style="{{ b.barStyle }}"></div>
+              <span style="font-size:10px;color:#5d726c;font-weight:500;white-space:nowrap;">{{ b.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 18px;">Records by crew member</h3>
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <sc-for list="{{ chartCrew }}" as="c" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:104px;font-size:13px;font-weight:600;flex:none;text-align:right;">{{ c.name }}</div>
+                <div style="flex:1;height:20px;background:rgba(20,64,59,0.05);border-radius:7px;overflow:hidden;"><div style="{{ c.fillStyle }}"></div></div>
+                <div style="width:42px;font-size:13px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;flex:none;">{{ c.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 18px;">{{ breakdownTitle }}</h3>
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <sc-for list="{{ chartBreakdown }}" as="c" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:120px;font-size:13px;font-weight:600;flex:none;text-align:right;">{{ c.name }}</div>
+                <div style="flex:1;height:20px;background:rgba(20,64,59,0.05);border-radius:7px;overflow:hidden;"><div style="{{ c.fillStyle }}"></div></div>
+                <div style="width:42px;font-size:13px;font-weight:700;font-family:'Bricolage Grotesque',sans-serif;flex:none;">{{ c.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <!-- measurements -->
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:24px;margin-top:16px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin:0 0 6px;">Fish size</h3>
+        <sc-if value="{{ hasMeasure }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <span style="font-size:12.5px;color:#5d726c;">{{ lengthHist.caption }}</span>
+            <div style="display:flex;align-items:flex-end;gap:6px;height:160px;padding-top:14px;">
+              <sc-for list="{{ lengthHist.bars }}" as="b" hint-placeholder-count="8">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;min-width:0;">
+                  <div style="{{ b.barStyle }}"></div>
+                  <span style="font-size:10px;color:#5d726c;font-weight:500;white-space:nowrap;">{{ b.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noMeasure }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:14px;background:rgba(31,122,109,0.05);border:1px dashed rgba(20,64,59,0.18);border-radius:14px;padding:18px 20px;">
+            <div style="width:40px;height:40px;border-radius:12px;background:rgba(31,122,109,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex:none;">📏</div>
+            <div>
+              <div style="font-weight:600;font-size:14.5px;">No length or weight measurements in this dataset</div>
+              <div style="font-size:13px;color:#5d726c;margin-top:2px;">When records include Length or Weight, a size chart will appear here automatically.</div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ================= MAP ================= -->
+    <sc-if value="{{ isMap }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div style="margin-bottom:18px;">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin:0 0 4px;">Where it happened</h2>
+        <p style="font-size:14.5px;color:#5d726c;margin:0;">{{ mapNote }}</p>
+      </div>
+      <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:20px;padding:14px;box-shadow:0 1px 2px rgba(20,48,44,0.05),0 16px 36px -30px rgba(20,48,44,0.5);">
+        <div ref="{{ setMapEl }}" style="width:100%;height:520px;border-radius:14px;background:rgba(31,122,109,0.06);"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:16px;">
+        <sc-for list="{{ siteList }}" as="s" hint-placeholder-count="2">
+          <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:16px;padding:16px 18px;display:flex;align-items:center;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:50%;background:rgba(226,86,59,0.14);display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:13px;height:13px;border-radius:50% 50% 50% 0;background:#e2563b;transform:rotate(45deg);"></div></div>
+            <div style="min-width:0;">
+              <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15.5px;">{{ s.name }}</div>
+              <div style="font-size:12.5px;color:#5d726c;">{{ s.count }} records · {{ s.coordLabel }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer style="border-top:1px solid rgba(20,64,59,0.12);background:rgba(255,253,247,0.5);">
+    <div style="max-width:1200px;margin:0 auto;padding:20px 22px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:12.5px;color:#5d726c;">{{ footerText }}</span>
+      <sc-if value="{{ dataSourceIsUpload }}" hint-placeholder-val="{{ false }}">
+        <button class="lk-link" onClick="{{ resetData }}" style="font-size:12.5px;font-weight:600;color:#1f7a6d;background:none;border:none;cursor:pointer;">Reset to sample data</button>
+      </sc-if>
+    </div>
+  </footer>
+
+  <!-- ================= DETAIL OVERLAY ================= -->
+  <sc-if value="{{ detailOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeDetail }}" style="position:fixed;inset:0;z-index:60;background:rgba(19,48,44,0.42);backdrop-filter:blur(3px);display:flex;justify-content:flex-end;">
+    <div onClick="{{ stop }}" class="lk-scroll" style="width:min(480px,100%);height:100%;background:#f5f1e8;overflow-y:auto;box-shadow:-30px 0 80px -40px rgba(0,0,0,0.5);">
+      <div style="position:sticky;top:0;background:linear-gradient(135deg,#13403b,#1f7a6d);color:#fdfcf7;padding:22px 24px;z-index:2;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div>
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:rgba(253,252,247,0.7);">{{ detailSpecies }}</div>
+            <div style="font-family:'Spline Sans Mono',monospace;font-weight:600;font-size:21px;margin-top:3px;letter-spacing:-0.01em;">{{ detailPit }}</div>
+          </div>
+          <button class="lk-btn" onClick="{{ closeDetail }}" style="background:rgba(255,253,247,0.16);color:#fdfcf7;border:none;width:34px;height:34px;border-radius:50%;font-size:17px;cursor:pointer;flex:none;line-height:1;">✕</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px;">
+          <span style="{{ detailEventStyle }}">{{ detailEventLabel }}</span>
+          <span style="font-size:13px;color:rgba(253,252,247,0.85);">{{ detailDateLabel }}</span>
+        </div>
+      </div>
+
+      <div style="padding:8px 24px 28px;">
+        <sc-for list="{{ detailGroups }}" as="g" hint-placeholder-count="5">
+          <div style="margin-top:22px;">
+            <div style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#1f7a6d;margin-bottom:10px;">{{ g.title }}</div>
+            <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:14px;overflow:hidden;">
+              <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:16px;padding:11px 15px;border-top:1px solid rgba(20,64,59,0.07);">
+                  <span style="font-size:13px;color:#5d726c;flex:none;">{{ it.label }}</span>
+                  <span style="{{ it.valStyle }}">{{ it.value }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="position:sticky;bottom:0;background:rgba(245,241,232,0.92);backdrop-filter:blur(8px);border-top:1px solid rgba(20,64,59,0.12);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <button class="lk-btn" onClick="{{ prevDetail }}" style="font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:13.5px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);padding:9px 16px;border-radius:999px;cursor:pointer;">← Previous</button>
+        <span style="font-size:12.5px;color:#5d726c;font-weight:500;">{{ detailPosLabel }}</span>
+        <button class="lk-btn" onClick="{{ nextDetail }}" style="font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:13.5px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);padding:9px 16px;border-radius:999px;cursor:pointer;">Next →</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    view: 'dashboard',
+    records: [],
+    dataSource: 'builtin',
+    search: '',
+    filterEvent: 'All events',
+    filterCrew: 'All crew',
+    filterSpecies: 'All species',
+    sortKey: 'rec',
+    sortDir: 1,
+    page: 1,
+    detailOpen: false,
+    detailIndex: 0,
+    menuOpen: false,
+  };
+  uploadMode = 'replace';
+
+  KEY = 'sockeyetracker.records.v1';
+  PAGE_SIZE = 20;
+  C = { ink:'#16302c', teal:'#1f7a6d', teal2:'#2f9d8a', blue:'#3a7ca5', coral:'#e2563b', gold:'#cf9b46', muted:'#5d726c' };
+  CREW_COLORS = ['#1f7a6d','#3a7ca5','#2f9d8a','#cf9b46','#e2563b','#6f9c3f','#b5683c','#4a8fb0'];
+
+  SRR = { '45':'Sockeye salmon','11':'Chinook salmon','12':'Coho salmon','13':'Chum salmon','14':'Pink salmon','21':'Steelhead','22':'Rainbow trout','27':'Kokanee','32':'Bull trout','40':'Cutthroat trout' };
+  SITES = { 'OSOYOL':'Osoyoos Lake','OKANL':'Okanagan Lake','SKAHAL':'Skaha Lake','VASEUL':'Vaseux Lake','OKANR':'Okanagan River','WENATR':'Wenatchee River' };
+  CAPTURE = { 'PSEINE':'Purse seine','BSEINE':'Beach seine','EFISH':'Electrofishing','DIPNET':'Dip net','ANGL':'Angling','TRAP':'Rotary screw trap','GILL':'Gill net','FYKE':'Fyke net' };
+  MARKM = { 'HAND':'By hand','AUTO':'Automated','PITAG':'PIT injector' };
+
+  componentDidMount() {
+    let recs = window.FISH_DATA || [];
+    try {
+      const saved = localStorage.getItem(this.KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length) {
+          this.setState({ records: parsed, dataSource: 'uploaded' });
+          return;
+        }
+      }
+    } catch (e) {}
+    if (!recs.length && window.FISH_DATA) recs = window.FISH_DATA;
+    this.setState({ records: recs });
+    if (!recs.length) setTimeout(() => this.setState({ records: window.FISH_DATA || [] }), 300);
+  }
+
+  componentDidUpdate(pp, ps) {
+    if (this.state.view === 'map') this.buildMap();
+  }
+
+  // ---------- helpers ----------
+  setFileInput = (el) => { this.fileInput = el; };
+  setMapEl = (el) => { this.mapEl = el; };
+  stop = (e) => { e.stopPropagation(); };
+
+  speciesName(srr) {
+    if (!srr) return 'Unknown';
+    return this.SRR[srr.slice(0,2)] || ('Species ' + srr);
+  }
+  siteName(code) { return code ? (this.SITES[code] || code) : '—'; }
+  captureName(code) { return code ? (this.CAPTURE[code] || code) : ''; }
+  markName(code) { return code ? (this.MARKM[code] || code) : ''; }
+  prettyName(n) {
+    if (!n) return '';
+    return n.split(/\s+/).map(w => w.length === 1 ? w.toUpperCase() + '.' : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+  fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+
+  parseDate(s) {
+    if (!s) return null;
+    const m = s.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+):(\d+)\s*(AM|PM)?/i);
+    if (!m) { const d = new Date(s); return isNaN(d) ? null : d; }
+    let h = parseInt(m[4]);
+    if (m[7]) { const ap = m[7].toUpperCase(); if (ap === 'PM' && h !== 12) h += 12; if (ap === 'AM' && h === 12) h = 0; }
+    return new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]), h, parseInt(m[5]), parseInt(m[6]));
+  }
+  fmtDate(d) { return d ? d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : ''; }
+  fmtTime(d) { return d ? d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) : ''; }
+
+  eventBadge(type) {
+    const t = (type || '').toLowerCase();
+    const coral = t === 'recapture' || t === 'mortality';
+    const bg = coral ? 'rgba(226,86,59,0.14)' : 'rgba(31,122,109,0.13)';
+    const col = coral ? '#c4422a' : '#1a6a5e';
+    return 'display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:' + bg + ';color:' + col + ';white-space:nowrap;';
+  }
+
+  // ---------- CSV ----------
+  parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.length);
+    if (!lines.length) return [];
+    const parseLine = (line) => {
+      const out = []; let cur = ''; let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { if (q && line[i+1] === '"') { cur += '"'; i++; } else q = !q; }
+        else if (c === ',' && !q) { out.push(cur); cur = ''; }
+        else cur += c;
+      }
+      out.push(cur); return out;
+    };
+    const header = parseLine(lines[0]);
+    return lines.slice(1).map(l => { const r = parseLine(l); const o = {}; header.forEach((h, i) => { o[h.trim()] = (r[i] || '').trim(); }); return o; });
+  }
+  toggleMenu = () => this.setState(s => ({ menuOpen: !s.menuOpen }));
+  pickReplace = () => { this.uploadMode = 'replace'; this.setState({ menuOpen: false }); if (this.fileInput) this.fileInput.click(); };
+  pickAdd = () => { this.uploadMode = 'add'; this.setState({ menuOpen: false }); if (this.fileInput) this.fileInput.click(); };
+  onUpload = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const incoming = this.parseCSV(r.result);
+        if (!incoming.length) { alert('That file had no rows we could read.'); return; }
+        let recs, msg;
+        if (this.uploadMode === 'add') {
+          const merged = this.records.slice();
+          const sig = new Set(merged.map(x => JSON.stringify(x)));
+          let added = 0;
+          incoming.forEach(x => { const k = JSON.stringify(x); if (!sig.has(k)) { sig.add(k); merged.push(x); added++; } });
+          recs = merged;
+          msg = 'Added ' + this.fmtNum(added) + ' new records (' + this.fmtNum(incoming.length - added) + ' duplicates skipped). Total now ' + this.fmtNum(recs.length) + '.';
+        } else {
+          recs = incoming;
+        }
+        this.setState({ records: recs, dataSource: 'uploaded', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', detailOpen: false, view: 'dashboard' });
+        try { localStorage.setItem(this.KEY, JSON.stringify(recs)); } catch (err) { msg = 'Loaded ' + this.fmtNum(recs.length) + ' records (too large to save in this browser — they will reset on reload).'; }
+        if (msg) alert(msg);
+        this.map = null;
+      } catch (err) { alert('Could not read that CSV: ' + err.message); }
+    };
+    r.readAsText(f);
+    e.target.value = '';
+  };
+  resetData = () => {
+    try { localStorage.removeItem(this.KEY); } catch (e) {}
+    this.map = null;
+    this.setState({ records: window.FISH_DATA || [], dataSource: 'builtin', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', detailOpen: false });
+  };
+
+  // ---------- derived ----------
+  get records() { return this.state.records || []; }
+
+  uniqueVals(col) {
+    const s = new Set();
+    this.records.forEach(r => { const v = (r[col] || '').trim(); if (v) s.add(v); });
+    return [...s];
+  }
+
+  filtered() {
+    const s = this.state;
+    const q = s.search.trim().toLowerCase();
+    let rows = this.records.filter(r => {
+      if (s.filterEvent !== 'All events' && (r['Event Type'] || '') !== s.filterEvent) return false;
+      if (s.filterCrew !== 'All crew' && this.prettyName(r['Tagger']) !== s.filterCrew) return false;
+      if (s.filterSpecies !== 'All species' && this.speciesName(r['SRR Code']) !== s.filterSpecies) return false;
+      if (q) {
+        const hay = [r['PIT Tag'], r['Record#'], r['Tagger'], r['Text Comments'], r['Conditional Comments'], r['Event Type'], r['Event Site']].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    const dir = s.sortDir;
+    rows.sort((a, b) => {
+      let av, bv;
+      if (s.sortKey === 'rec') { av = parseFloat(a['Record#']) || 0; bv = parseFloat(b['Record#']) || 0; }
+      else if (s.sortKey === 'date') { av = (this.parseDate(a['Event Date']) || 0) && this.parseDate(a['Event Date']).getTime(); bv = (this.parseDate(b['Event Date']) || 0) && this.parseDate(b['Event Date']).getTime(); av = av || 0; bv = bv || 0; }
+      else if (s.sortKey === 'crew') { av = (a['Tagger'] || ''); bv = (b['Tagger'] || ''); }
+      else { av = (a['Event Type'] || ''); bv = (b['Event Type'] || ''); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return rows;
+  }
+
+  deriveSites() {
+    const map = {};
+    this.records.forEach(r => {
+      const lat = parseFloat(r['Latitude']); const lng = parseFloat(r['Longitude']);
+      if (isNaN(lat) || isNaN(lng)) return;
+      const site = r['Event Site'] || 'Site';
+      const key = site + '@' + lat.toFixed(3) + ',' + lng.toFixed(3);
+      if (!map[key]) map[key] = { name: this.siteName(site), lat: 0, lng: 0, count: 0, _la: 0, _lo: 0 };
+      const o = map[key]; o.count++; o._la += lat; o._lo += lng; o.lat = o._la / o.count; o.lng = o._lo / o.count;
+    });
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }
+
+  buildMap() {
+    if (!window.L) { clearTimeout(this._mt); this._mt = setTimeout(() => this.buildMap(), 220); return; }
+    const el = this.mapEl; if (!el) return;
+    const token = this.records.length + ':' + this.state.dataSource;
+    if (this.map && this._mapToken === token) { this.map.invalidateSize(); return; }
+    if (!this.map) {
+      this.map = L.map(el, { scrollWheelZoom: false, attributionControl: true }).setView([49.04, -119.44], 12);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19
+      }).addTo(this.map);
+    }
+    if (this.markerLayer) this.map.removeLayer(this.markerLayer);
+    this.markerLayer = L.layerGroup().addTo(this.map);
+    const sites = this.deriveSites();
+    const pts = [];
+    const max = Math.max(1, ...sites.map(s => s.count));
+    sites.forEach(s => {
+      const radius = 9 + 26 * Math.sqrt(s.count / max);
+      const m = L.circleMarker([s.lat, s.lng], { radius, color: '#c4422a', weight: 2, fillColor: '#e2563b', fillOpacity: 0.5 });
+      m.bindPopup('<b style="font-family:sans-serif;">' + s.name + '</b><br><span style="font-family:sans-serif;color:#5d726c;">' + this.fmtNum(s.count) + ' records</span>');
+      m.addTo(this.markerLayer); pts.push([s.lat, s.lng]);
+    });
+    if (pts.length === 1) this.map.setView(pts[0], 13);
+    else if (pts.length > 1) this.map.fitBounds(pts, { padding: [50, 50] });
+    this._mapToken = token;
+    setTimeout(() => this.map && this.map.invalidateSize(), 60);
+  }
+
+  // ---------- detail ----------
+  FIELD_GROUPS = [
+    ['Identification', ['PIT Tag','SRR Code','Record#','Session','Project Code','Second PIT Tag','Coded-Wire Tag','Genetic ID','Acoustic Tag','Radio Tag','Scale ID','Other Tag']],
+    ['Event', ['Event Type','Event Date','Event Date (PST)','Life Stage','Capture Method','Mark Method']],
+    ['Biology', ['Length','Weight','Brood Year','Migration Year','Spawn Year']],
+    ['Location', ['Event Site','Release Site','Latitude','Longitude','RKM Mask','RKM Ext','Lat/Long Source']],
+    ['Conditions & release', ['Release Date','Release Date (PST)','Release Temp','Mark Temp','Hold Temp','Raceway/Transect/Tank','Hatchery','Stock']],
+    ['Crew & organization', ['Tagger','Organization']],
+    ['Notes', ['Session Message','Session Note','Conditional Comments','Text Comments','Detail Note']],
+  ];
+  fieldLabel(c) {
+    const m = { 'SRR Code':'Species (SRR)', 'RKM Mask':'River km', 'RKM Ext':'River km (ext)', 'Lat/Long Source':'Coords source', 'Record#':'Record #', 'Raceway/Transect/Tank':'Raceway / tank' };
+    return m[c] || c;
+  }
+  prettyVal(c, v) {
+    if (!v) return '';
+    if (c === 'SRR Code') return this.speciesName(v) + '  ·  ' + v;
+    if (c === 'Event Site' || c === 'Release Site') return this.siteName(v);
+    if (c === 'Capture Method') return this.captureName(v);
+    if (c === 'Mark Method') return this.markName(v);
+    if (c === 'Tagger') return this.prettyName(v);
+    if (/Date/.test(c)) { const d = this.parseDate(v); if (d) return this.fmtDate(d) + ', ' + this.fmtTime(d); }
+    if (c === 'Release Temp' || c === 'Mark Temp' || c === 'Hold Temp') return v + ' °C';
+    if (c === 'Length') return v + ' mm';
+    if (c === 'Weight') return v + ' g';
+    return v;
+  }
+  isMono(c) { return /PIT Tag|Tag$|Latitude|Longitude|Genetic ID|Record#|Session$|RKM/.test(c); }
+
+  openRow(i) { this.setState({ detailOpen: true, detailIndex: i }); }
+  closeDetail = () => this.setState({ detailOpen: false });
+  prevDetail = () => this.setState(s => ({ detailIndex: Math.max(0, s.detailIndex - 1) }));
+  nextDetail = () => this.setState(s => ({ detailIndex: Math.min(this.filtered().length - 1, s.detailIndex + 1) }));
+
+  // ---------- render ----------
+  renderVals() {
+    const C = this.C;
+    const recs = this.records;
+    const total = recs.length;
+
+    // nav
+    const tabs = [['dashboard','Overview'],['table','Explore'],['charts','Charts'],['map','Map']];
+    const navItems = tabs.map(([key, label]) => {
+      const active = this.state.view === key;
+      return {
+        key, label,
+        onClick: () => { this.setState({ view: key }); },
+        style: 'font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;font-size:13.5px;border:none;cursor:pointer;padding:8px 16px;border-radius:999px;transition:all .15s;'
+          + (active ? 'background:#16302c;color:#fffdf7;' : 'background:transparent;color:#5d726c;'),
+      };
+    });
+
+    // meta
+    const speciesList = this.uniqueVals('SRR Code').map(c => this.speciesName(c));
+    const speciesUniq = [...new Set(speciesList)];
+    const sites = this.uniqueVals('Event Site').map(c => this.siteName(c));
+    const sitesUniq = [...new Set(sites)];
+    const crew = [...new Set(this.uniqueVals('Tagger').map(t => this.prettyName(t)))];
+    const sessions = this.uniqueVals('Session');
+    const dates = recs.map(r => this.parseDate(r['Event Date'])).filter(Boolean).sort((a, b) => a - b);
+    const dateLabel = dates.length ? (this.fmtDate(dates[0]) === this.fmtDate(dates[dates.length-1]) ? this.fmtDate(dates[0]) : this.fmtDate(dates[0]) + ' – ' + this.fmtDate(dates[dates.length-1])) : '—';
+    const marks = recs.filter(r => (r['Event Type'] || '').toLowerCase() === 'mark').length;
+    const recaps = recs.filter(r => (r['Event Type'] || '').toLowerCase() === 'recapture').length;
+    const others = total - marks - recaps;
+    const primarySpecies = speciesUniq.length === 1 ? speciesUniq[0] : (speciesUniq.length + ' species');
+    const lifeStage = (this.uniqueVals('Life Stage')[0] || '').toLowerCase();
+
+    const appTitle = (speciesUniq.length === 1 ? speciesUniq[0].replace(' salmon','') : 'Fish') + ' Tracker';
+    const sessionMsg = (recs[0] && recs[0]['Session Message']) || 'Community fish data explorer';
+
+    // hero
+    const heroHeadline = total
+      ? this.fmtNum(total) + ' ' + (lifeStage ? lifeStage + ' ' : '') + (speciesUniq.length === 1 ? speciesUniq[0].toLowerCase() : 'fish') + ' tracked'
+      : 'No records yet';
+    const storyText = total
+      ? 'Between ' + dateLabel + ', a crew of ' + crew.length + ' recorded ' + this.fmtNum(total) + ' ' + (speciesUniq.length === 1 ? speciesUniq[0].toLowerCase() : 'fish') + ' events across ' + sitesUniq.length + ' ' + (sitesUniq.length === 1 ? 'site' : 'sites') + '. Every fish carries a unique PIT tag, so it can be recognised again whenever and wherever it turns up.'
+      : 'Use “Update data” to load a CSV export and this page will fill in automatically.';
+
+    const heroFacts = [
+      { label: 'Dates', value: dateLabel },
+      { label: sitesUniq.length === 1 ? 'Site' : 'Sites', value: sitesUniq.length === 1 ? sitesUniq[0] : sitesUniq.length },
+      { label: 'Species', value: primarySpecies },
+      { label: 'Field crew', value: crew.length },
+    ];
+
+    const statTiles = [
+      { label: 'Field crew', value: this.fmtNum(crew.length), sub: crew.length === 1 ? 'person' : 'people tagging', color: C.ink },
+      { label: 'Recaptures', value: this.fmtNum(recaps), sub: 'fish seen again', color: C.coral },
+      { label: 'Species', value: this.fmtNum(speciesUniq.length), sub: primarySpecies, color: C.ink },
+      { label: 'Sites', value: this.fmtNum(sitesUniq.length), sub: sitesUniq.length === 1 ? sitesUniq[0] : 'locations', color: C.ink },
+      { label: 'Sessions', value: this.fmtNum(sessions.length), sub: 'field sessions', color: C.ink },
+    ];
+
+    // activity chart — bin by hour (single day), day (<=31 days), or month (longer spans)
+    const distinctDays = [...new Set(dates.map(d => d.toDateString()))];
+    let actEntries = []; let activityUnit;
+    if (distinctDays.length <= 1) {
+      activityUnit = 'hour';
+      const m = {};
+      recs.forEach(r => { const d = this.parseDate(r['Event Date']); if (d) m[d.getHours()] = (m[d.getHours()] || 0) + 1; });
+      const hrs = Object.keys(m).map(Number).sort((a, b) => a - b);
+      if (hrs.length) { for (let h = hrs[0]; h <= hrs[hrs.length-1]; h++) actEntries.push([((h % 12) || 12) + (h < 12 ? 'a' : 'p'), m[h] || 0]); }
+    } else if (distinctDays.length <= 31) {
+      activityUnit = 'day';
+      const m = {};
+      recs.forEach(r => { const d = this.parseDate(r['Event Date']); if (d) { const k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); (m[k] = m[k] || { n: 0, d }).n++; } });
+      actEntries = Object.values(m).sort((a, b) => a.d - b.d).map(o => [o.d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), o.n]);
+    } else {
+      activityUnit = 'month';
+      const m = {};
+      recs.forEach(r => { const d = this.parseDate(r['Event Date']); if (d) { const k = d.getFullYear() * 12 + d.getMonth(); (m[k] = m[k] || { n: 0, d: new Date(d.getFullYear(), d.getMonth(), 1) }).n++; } });
+      actEntries = Object.values(m).sort((a, b) => a.d - b.d).map(o => [o.d.toLocaleDateString('en-US', { month: 'short' }) + ' \u2019' + String(o.d.getFullYear()).slice(2), o.n]);
+    }
+    const actMax = Math.max(1, ...actEntries.map(e => e[1]));
+    const peakA = actEntries.reduce((m, e) => e[1] > m[1] ? e : m, ['', 0]);
+    const labelStep = Math.ceil(actEntries.length / 16);
+    const chartActivity = {
+      peakText: actEntries.length ? ('Busiest ' + activityUnit + ': ' + peakA[0] + ' (' + this.fmtNum(peakA[1]) + ')') : '',
+      bars: actEntries.map(([label, v], i) => ({
+        label: (i % labelStep === 0 || i === actEntries.length - 1) ? label : '',
+        value: this.fmtNum(v),
+        barStyle: 'width:100%;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#2f9d8a,#1f7a6d);height:' + Math.max(4, (v / actMax) * 100) + '%;min-height:4px;',
+      })),
+    };
+
+    // crew chart
+    const crewCount = {};
+    recs.forEach(r => { const n = this.prettyName(r['Tagger']); if (n) crewCount[n] = (crewCount[n] || 0) + 1; });
+    const crewEntries = Object.entries(crewCount).sort((a, b) => b[1] - a[1]);
+    const crewMax = Math.max(1, ...crewEntries.map(e => e[1]));
+    const chartCrew = crewEntries.map(([name, v], i) => ({
+      name, value: this.fmtNum(v),
+      fillStyle: 'height:100%;border-radius:7px;background:' + this.CREW_COLORS[i % this.CREW_COLORS.length] + ';width:' + Math.max(3, (v / crewMax) * 100) + '%;',
+    }));
+
+    // event split
+    const eMax = Math.max(1, total);
+    const eventSplit = {
+      markLabel: this.fmtNum(marks) + (total ? '  ·  ' + Math.round(marks / eMax * 100) + '%' : ''),
+      recapLabel: this.fmtNum(recaps + others) + (total ? '  ·  ' + Math.round((recaps + others) / eMax * 100) + '%' : ''),
+      segMarkStyle: 'height:100%;background:#1f7a6d;width:' + (marks / eMax * 100) + '%;',
+      segRecapStyle: 'height:100%;background:#e2563b;width:' + ((recaps + others) / eMax * 100) + '%;',
+      note: recaps ? (this.fmtNum(recaps) + ' tagged fish ' + (recaps === 1 ? 'was' : 'were') + ' encountered a second time — a recapture.') : 'Marks are first-time taggings. Recaptures appear once tagged fish are seen again.',
+    };
+
+    // breakdown chart (species if >1, else by site, else by capture method)
+    let breakdownTitle, breakdownCol, breakdownFn;
+    if (speciesUniq.length > 1) { breakdownTitle = 'Records by species'; breakdownFn = r => this.speciesName(r['SRR Code']); }
+    else if (sitesUniq.length > 1) { breakdownTitle = 'Records by site'; breakdownFn = r => this.siteName(r['Event Site']); }
+    else { breakdownTitle = 'Records by capture method'; breakdownFn = r => this.captureName(r['Capture Method']) || '—'; }
+    const bdCount = {};
+    recs.forEach(r => { const k = breakdownFn(r); if (k) bdCount[k] = (bdCount[k] || 0) + 1; });
+    const bdEntries = Object.entries(bdCount).sort((a, b) => b[1] - a[1]);
+    const bdMax = Math.max(1, ...bdEntries.map(e => e[1]));
+    const chartBreakdown = bdEntries.map(([name, v], i) => ({
+      name, value: this.fmtNum(v),
+      fillStyle: 'height:100%;border-radius:7px;background:' + [C.blue, C.teal, C.teal2, C.gold, C.coral][i % 5] + ';width:' + Math.max(3, (v / bdMax) * 100) + '%;',
+    }));
+
+    // length histogram
+    const lengths = recs.map(r => parseFloat(r['Length'])).filter(v => !isNaN(v));
+    const hasMeasure = lengths.length > 0;
+    let lengthHist = { bars: [], caption: '' };
+    if (hasMeasure) {
+      const lo = Math.min(...lengths), hi = Math.max(...lengths);
+      const nB = 8; const span = (hi - lo) || 1; const w = span / nB;
+      const buckets = new Array(nB).fill(0);
+      lengths.forEach(v => { let b = Math.floor((v - lo) / w); if (b >= nB) b = nB - 1; if (b < 0) b = 0; buckets[b]++; });
+      const bMax = Math.max(1, ...buckets);
+      const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+      lengthHist = {
+        caption: lengths.length + ' measured · ' + Math.round(lo) + '–' + Math.round(hi) + ' mm · avg ' + Math.round(avg) + ' mm',
+        bars: buckets.map((v, i) => ({
+          label: Math.round(lo + i * w) + '',
+          barStyle: 'width:100%;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#3a7ca5,#2f6f93);height:' + Math.max(4, (v / bMax) * 100) + '%;min-height:4px;',
+        })),
+      };
+    }
+
+    // ---- table ----
+    const filtered = this.filtered();
+    const filteredCount = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(filteredCount / this.PAGE_SIZE));
+    const page = Math.min(this.state.page, totalPages);
+    const start = (page - 1) * this.PAGE_SIZE;
+    const pageSlice = filtered.slice(start, start + this.PAGE_SIZE);
+    const pageRows = pageSlice.map((r, idx) => {
+      const fi = start + idx;
+      const d = this.parseDate(r['Event Date']);
+      return {
+        open: () => this.openRow(fi),
+        recNum: r['Record#'] || '—',
+        pitTag: r['PIT Tag'] || '—',
+        species: this.speciesName(r['SRR Code']),
+        eventLabel: r['Event Type'] || '—',
+        eventStyle: this.eventBadge(r['Event Type']),
+        dateLabel: this.fmtDate(d) || '—',
+        timeLabel: this.fmtTime(d),
+        site: this.siteName(r['Event Site']),
+        crew: this.prettyName(r['Tagger']) || '—',
+      };
+    });
+
+    const sortDef = [['recNum','Record #','rec'],['pit','PIT tag',null],['species','Species',null],['event','Event','event'],['date','Date','date'],['site','Site',null],['crew','Crew','crew']];
+    const headerCols = sortDef.map(([_, label, key]) => {
+      const active = key && this.state.sortKey === key;
+      const arrow = active ? (this.state.sortDir === 1 ? '  ↑' : '  ↓') : '';
+      return {
+        label, arrow,
+        onClick: key ? (() => this.setState(s => ({ sortKey: key, sortDir: s.sortKey === key ? -s.sortDir : 1, page: 1 }))) : undefined,
+        style: 'text-align:left;padding:13px 14px;font-size:11.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:' + (active ? '#1a6a5e' : '#5d726c') + ';white-space:nowrap;position:sticky;top:0;background:#eaf1ef;' + (key ? 'cursor:pointer;' : ''),
+      };
+    });
+
+    const eventOptions = ['All events', ...this.uniqueVals('Event Type')];
+    const crewOptions = ['All crew', ...crew];
+    const speciesOptions = ['All species', ...speciesUniq];
+
+    const resultLabel = filteredCount === total
+      ? this.fmtNum(total) + ' records · tap any row for the full story'
+      : this.fmtNum(filteredCount) + ' of ' + this.fmtNum(total) + ' records match';
+    const pageLabel = filteredCount ? ('Showing ' + this.fmtNum(start + 1) + '–' + this.fmtNum(Math.min(start + this.PAGE_SIZE, filteredCount)) + ' of ' + this.fmtNum(filteredCount)) : 'No matching records';
+    const pgBtn = (on) => 'font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;font-size:13.5px;padding:9px 16px;border-radius:999px;border:1px solid rgba(20,64,59,0.14);' + (on ? 'background:#fffdf7;color:#16302c;cursor:pointer;' : 'background:rgba(20,64,59,0.04);color:#b6c1bd;cursor:not-allowed;');
+
+    // ---- map ----
+    const siteData = this.deriveSites();
+    const siteList = siteData.map(s => ({ name: s.name, count: this.fmtNum(s.count), coordLabel: s.lat.toFixed(4) + ', ' + s.lng.toFixed(4) }));
+    const mapNote = siteData.length > 1
+      ? siteData.length + ' sites — circle size shows how many records came from each.'
+      : (siteData.length === 1 ? 'All records cluster at one site on ' + (sitesUniq[0] || 'the water') + '. Zoom in to see the exact spot.' : 'No location data in these records.');
+
+    // ---- detail ----
+    const dr = filtered[Math.min(this.state.detailIndex, Math.max(0, filtered.length - 1))];
+    let detailGroups = [], detailPit = '', detailSpecies = '', detailEventLabel = '', detailEventStyle = '', detailDateLabel = '', detailPosLabel = '';
+    if (dr) {
+      detailPit = dr['PIT Tag'] || '—';
+      detailSpecies = this.speciesName(dr['SRR Code']);
+      detailEventLabel = dr['Event Type'] || '—';
+      detailEventStyle = this.eventBadge(dr['Event Type']).replace('rgba(31,122,109,0.13)','rgba(255,253,247,0.18)').replace('#1a6a5e','#fdfcf7').replace('rgba(226,86,59,0.14)','rgba(255,253,247,0.22)').replace('#c4422a','#ffe3da');
+      const dd = this.parseDate(dr['Event Date']);
+      detailDateLabel = dd ? this.fmtDate(dd) + ' · ' + this.fmtTime(dd) : '';
+      detailPosLabel = 'Record ' + this.fmtNum(this.state.detailIndex + 1) + ' of ' + this.fmtNum(filtered.length);
+      detailGroups = this.FIELD_GROUPS.map(([title, cols]) => {
+        const items = cols.filter(c => (dr[c] || '').trim()).map(c => ({
+          label: this.fieldLabel(c),
+          value: this.prettyVal(c, dr[c]),
+          valStyle: 'font-size:13.5px;font-weight:600;color:#16302c;text-align:right;' + (this.isMono(c) ? 'font-family:\'Spline Sans Mono\',monospace;font-weight:500;font-size:12.5px;' : ''),
+        }));
+        return { title, items };
+      }).filter(g => g.items.length);
+    }
+
+    return {
+      appTitle, appSubtitle: sessionMsg.length > 60 ? sessionMsg.slice(0, 58) + '…' : sessionMsg,
+      navItems,
+      isDash: this.state.view === 'dashboard', isTable: this.state.view === 'table', isCharts: this.state.view === 'charts', isMap: this.state.view === 'map',
+      dataSourceLabel: this.state.dataSource === 'uploaded' ? 'Your uploaded data' : 'Built-in sample data',
+      dataSourceIsUpload: this.state.dataSource === 'uploaded',
+      dataDotColor: this.state.dataSource === 'uploaded' ? '#e2563b' : '#1f7a6d',
+      toggleMenu: this.toggleMenu, menuOpen: this.state.menuOpen, pickAdd: this.pickAdd, pickReplace: this.pickReplace,
+      setFileInput: this.setFileInput, onUpload: this.onUpload, resetData: this.resetData,
+      goTable: () => this.setState({ view: 'table' }), goMap: () => this.setState({ view: 'map' }),
+
+      heroBadge: 'Open fish data · ' + (this.uniqueVals('Project Code')[0] || 'Community'),
+      heroHeadline, storyText, heroFacts,
+      heroCount: this.fmtNum(total), heroCountLabel: 'records on file',
+      statTiles, chartActivity, chartCrew, eventSplit,
+      breakdownTitle, chartBreakdown,
+      hasMeasure, noMeasure: !hasMeasure, lengthHist,
+
+      search: this.state.search,
+      onSearch: (e) => this.setState({ search: e.target.value, page: 1 }),
+      filterEvent: this.state.filterEvent, filterCrew: this.state.filterCrew, filterSpecies: this.state.filterSpecies,
+      onEventChange: (e) => this.setState({ filterEvent: e.target.value, page: 1 }),
+      onCrewChange: (e) => this.setState({ filterCrew: e.target.value, page: 1 }),
+      onSpeciesChange: (e) => this.setState({ filterSpecies: e.target.value, page: 1 }),
+      clearFilters: () => this.setState({ search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', page: 1 }),
+      eventOptions, crewOptions, speciesOptions,
+      headerCols, pageRows, resultLabel, pageLabel,
+      prevPage: () => this.setState(s => ({ page: Math.max(1, s.page - 1) })),
+      nextPage: () => this.setState(s => ({ page: Math.min(totalPages, s.page + 1) })),
+      prevStyle: pgBtn(page > 1), nextStyle: pgBtn(page < totalPages),
+
+      setMapEl: this.setMapEl, siteList, mapNote,
+
+      detailOpen: this.state.detailOpen && !!dr, closeDetail: this.closeDetail, prevDetail: this.prevDetail, nextDetail: this.nextDetail, stop: this.stop,
+      detailPit, detailSpecies, detailEventLabel, detailEventStyle, detailDateLabel, detailPosLabel, detailGroups,
+
+      footerText: 'Open data explorer · built to be hosted free on GitHub Pages · ' + this.fmtNum(total) + ' records loaded',
+    };
+  }
+}
+</script>
+</body>
+</html>

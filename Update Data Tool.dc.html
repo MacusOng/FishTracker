@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="./fish-data.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #f5f1e8; color: #16302c; font-family: 'Hanken Grotesk', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .udt-drop:hover { border-color: #1f7a6d !important; background: rgba(31,122,109,0.07) !important; }
+  .udt-btn:hover { filter: brightness(1.05); }
+  .udt-x:hover { color: #e2563b !important; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:40px 22px 60px;">
+  <div style="width:100%;max-width:660px;">
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px;">
+      <div style="width:42px;height:42px;border-radius:50%;background:radial-gradient(circle at 32% 30%, #2f9d8a, #1f7a6d 70%);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 4px 14px -4px rgba(31,122,109,0.6);">
+        <div style="width:16px;height:16px;border-radius:50% 50% 50% 0;background:#e2563b;transform:rotate(45deg);"></div>
+      </div>
+      <div>
+        <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:25px;letter-spacing:-0.02em;margin:0;">Build the combined database</h1>
+        <p style="font-size:13.5px;color:#5d726c;margin:2px 0 0;">Add every CSV — all years, all sites — and stack them into one <code style="font-family:'Spline Sans Mono',monospace;font-size:12px;">fish-data.js</code>.</p>
+      </div>
+    </div>
+
+    <!-- running total -->
+    <div style="background:linear-gradient(135deg,#13403b,#1f7a6d);color:#fdfcf7;border-radius:22px;padding:24px 26px;display:flex;justify-content:space-between;align-items:center;gap:20px;box-shadow:0 18px 40px -26px rgba(19,64,59,0.9);">
+      <div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:rgba(253,252,247,0.72);">Combined total</div>
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:46px;line-height:1;letter-spacing:-0.03em;margin-top:4px;">{{ totalLabel }}</div>
+        <div style="font-size:13px;color:rgba(253,252,247,0.85);margin-top:4px;">{{ subLabel }}</div>
+      </div>
+      <button class="udt-btn" onClick="{{ download }}" style="{{ downloadStyle }}">Download fish-data.js</button>
+    </div>
+
+    <!-- options -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+      <button onClick="{{ toggleDedupe }}" style="{{ dedupeStyle }}">{{ dedupeIcon }} Skip exact duplicate rows</button>
+      <button onClick="{{ toggleBuiltin }}" style="{{ builtinStyle }}">{{ builtinIcon }} Include the data already in the site ({{ builtinCount }})</button>
+    </div>
+
+    <!-- drop zone -->
+    <label class="udt-drop" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;border:2px dashed rgba(20,64,59,0.22);border-radius:18px;padding:34px 24px;cursor:pointer;transition:all .15s;background:rgba(31,122,109,0.02);margin-top:16px;">
+      <div style="width:50px;height:50px;border-radius:16px;background:rgba(31,122,109,0.12);display:flex;align-items:center;justify-content:center;font-size:23px;">📑</div>
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;">Add CSV files</div>
+      <div style="font-size:13px;color:#5d726c;">Pick one or several at once · drop them here</div>
+      <input type="file" accept=".csv,text/csv" multiple onChange="{{ onFiles }}" style="display:none;">
+    </label>
+
+    <!-- file list -->
+    <sc-if value="{{ hasFiles }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+        <sc-for list="{{ fileList }}" as="f" hint-placeholder-count="2">
+          <div style="display:flex;align-items:center;gap:13px;background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:14px;padding:13px 15px;">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(31,122,109,0.10);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none;">📄</div>
+            <div style="min-width:0;flex:1;">
+              <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ f.name }}</div>
+              <div style="font-size:12.5px;color:#5d726c;">{{ f.detail }}</div>
+            </div>
+            <button class="udt-x" onClick="{{ f.remove }}" style="background:none;border:none;color:#9aa8a3;cursor:pointer;font-size:17px;flex:none;line-height:1;">✕</button>
+          </div>
+        </sc-for>
+        <button onClick="{{ clearAll }}" style="align-self:flex-start;background:none;border:none;color:#1f7a6d;font-weight:600;font-size:13px;cursor:pointer;padding:6px 2px;font-family:'Hanken Grotesk',sans-serif;">Clear all files</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ hasError }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:14px;display:flex;align-items:center;gap:12px;background:rgba(226,86,59,0.08);border:1px solid rgba(226,86,59,0.25);border-radius:14px;padding:13px 16px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:#e2563b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none;">!</div>
+        <div style="font-size:13.5px;color:#c4422a;font-weight:500;">{{ errorMsg }}</div>
+      </div>
+    </sc-if>
+
+    <!-- how to use -->
+    <div style="background:#fffdf7;border:1px solid rgba(20,64,59,0.10);border-radius:18px;padding:20px 22px;margin-top:22px;">
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15px;margin-bottom:12px;">Then what?</div>
+      <ol style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;color:#3c524d;">
+        <li><b>Download</b> the combined <code style="font-family:'Spline Sans Mono',monospace;font-size:12px;">fish-data.js</code> above.</li>
+        <li>In your GitHub repo, open the old <code style="font-family:'Spline Sans Mono',monospace;font-size:12px;">fish-data.js</code> → <b>Upload files</b> → drop the new one in to replace it → <b>Commit</b>.</li>
+        <li>The live website refreshes within a minute, now showing every record.</li>
+      </ol>
+      <p style="font-size:12.5px;color:#5d726c;margin:14px 0 0;text-wrap:pretty;">Next time you have more data, come back and add <i>all</i> the CSVs again (or just tick “Include the data already in the site” and add only the new ones). Duplicate rows are skipped automatically, so nothing gets counted twice.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { fileData: [], dedupe: true, includeBuiltin: false, hasError: false, errorMsg: '' };
+
+  parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.length);
+    if (!lines.length) return { header: [], rows: [] };
+    const parseLine = (line) => {
+      const out = []; let cur = ''; let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { if (q && line[i+1] === '"') { cur += '"'; i++; } else q = !q; }
+        else if (c === ',' && !q) { out.push(cur); cur = ''; }
+        else cur += c;
+      }
+      out.push(cur); return out;
+    };
+    const header = parseLine(lines[0]).map(h => h.trim());
+    const rows = lines.slice(1).map(l => { const r = parseLine(l); const o = {}; header.forEach((h, i) => { o[h] = (r[i] || '').trim(); }); return o; });
+    return { header, rows };
+  }
+
+  fmt(n) { return (n || 0).toLocaleString('en-US'); }
+
+  build() {
+    const dedupe = this.state.dedupe;
+    const sig = new Set();
+    const combined = [];
+    const colSet = new Set();
+    const add = (rows) => {
+      let added = 0, skipped = 0;
+      rows.forEach(r => {
+        Object.keys(r).forEach(k => colSet.add(k));
+        const key = JSON.stringify(r);
+        if (dedupe && sig.has(key)) { skipped++; return; }
+        sig.add(key); combined.push(r); added++;
+      });
+      return { added, skipped };
+    };
+    let builtinStat = { added: 0, skipped: 0 };
+    if (this.state.includeBuiltin) builtinStat = add(window.FISH_DATA || []);
+    const fileStats = this.state.fileData.map(f => { const s = add(f.rows); return { name: f.name, total: f.rows.length, ...s }; });
+    const columns = [...colSet];
+    const dataStr = 'window.FISH_COLUMNS = ' + JSON.stringify(columns) + ';\nwindow.FISH_DATA = ' + JSON.stringify(combined) + ';\n';
+    return { combined, columns, fileStats, builtinStat, dataStr };
+  }
+
+  onFiles = (e) => {
+    const files = [...(e.target.files || [])];
+    if (!files.length) return;
+    let pending = files.length;
+    const collected = [];
+    files.forEach(f => {
+      const r = new FileReader();
+      r.onload = () => {
+        try {
+          const { rows } = this.parseCSV(r.result);
+          if (rows.length) collected.push({ name: f.name, rows });
+          else collected.push({ name: f.name, rows: [], empty: true });
+        } catch (err) { this.setState({ hasError: true, errorMsg: 'Could not read ' + f.name + ': ' + err.message }); }
+        if (--pending === 0) {
+          const good = collected.filter(c => !c.empty);
+          const bad = collected.filter(c => c.empty);
+          this.setState(s => ({
+            fileData: s.fileData.concat(good),
+            hasError: bad.length > 0,
+            errorMsg: bad.length ? (bad.map(b => b.name).join(', ') + ' had no readable rows.') : '',
+          }));
+        }
+      };
+      r.readAsText(f);
+    });
+    e.target.value = '';
+  };
+
+  removeFile(i) { this.setState(s => ({ fileData: s.fileData.filter((_, idx) => idx !== i) })); }
+  clearAll = () => this.setState({ fileData: [], hasError: false, errorMsg: '' });
+  toggleDedupe = () => this.setState(s => ({ dedupe: !s.dedupe }));
+  toggleBuiltin = () => this.setState(s => ({ includeBuiltin: !s.includeBuiltin }));
+
+  download = () => {
+    const { combined, dataStr } = this.build();
+    if (!combined.length) return;
+    const blob = new Blob([dataStr], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'fish-data.js';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  renderVals() {
+    const { combined, columns, fileStats } = this.build();
+    const n = combined.length;
+    const chip = (on) => 'font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;padding:9px 14px;border-radius:999px;border:1px solid ' + (on ? 'rgba(31,122,109,0.4)' : 'rgba(20,64,59,0.14)') + ';background:' + (on ? 'rgba(31,122,109,0.10)' : '#fffdf7') + ';color:' + (on ? '#1a6a5e' : '#5d726c') + ';';
+    return {
+      totalLabel: this.fmt(n),
+      subLabel: n ? ('records · ' + columns.length + ' columns · ready to download') : 'records · add CSV files below to start stacking',
+      downloadStyle: 'font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;font-size:14.5px;border:none;border-radius:14px;padding:13px 20px;flex:none;' + (n ? 'background:#fdfcf7;color:#16302c;cursor:pointer;box-shadow:0 6px 16px -6px rgba(0,0,0,0.4);' : 'background:rgba(253,252,247,0.25);color:rgba(253,252,247,0.6);cursor:not-allowed;'),
+      download: this.download,
+      dedupe: this.state.dedupe, dedupeStyle: chip(this.state.dedupe), dedupeIcon: this.state.dedupe ? '✓' : '○', toggleDedupe: this.toggleDedupe,
+      includeBuiltin: this.state.includeBuiltin, builtinStyle: chip(this.state.includeBuiltin), builtinIcon: this.state.includeBuiltin ? '✓' : '○', toggleBuiltin: this.toggleBuiltin,
+      builtinCount: this.fmt((window.FISH_DATA || []).length),
+      hasFiles: this.state.fileData.length > 0,
+      fileList: fileStats.map((f, i) => ({
+        name: f.name,
+        detail: this.fmt(f.added) + ' added' + (f.skipped ? ' · ' + this.fmt(f.skipped) + ' duplicates skipped' : ''),
+        remove: () => this.removeFile(i),
+      })),
+      clearAll: this.clearAll,
+      hasError: this.state.hasError, errorMsg: this.state.errorMsg,
+    };
+  }
+}
+</script>
+</body>
+</html>
