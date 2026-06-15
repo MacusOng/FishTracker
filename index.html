@@ -200,6 +200,15 @@
           <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#9aa8a3;font-size:15px;">⌕</span>
           <input value="{{ search }}" onInput="{{ onSearch }}" placeholder="Search PIT tag, record #, crew…" style="width:100%;font-family:'Hanken Grotesk',sans-serif;font-size:14px;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 14px 11px 34px;outline:none;">
         </div>
+        <select value="{{ filterYear }}" onChange="{{ onYearChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ yearOptions }}" as="o" hint-placeholder-count="2"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <select value="{{ filterMonth }}" onChange="{{ onMonthChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ monthOptions }}" as="o" hint-placeholder-count="3"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
+        <select value="{{ filterSite }}" onChange="{{ onSiteChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
+          <sc-for list="{{ siteOptions }}" as="o" hint-placeholder-count="2"><option value="{{ o }}">{{ o }}</option></sc-for>
+        </select>
         <select value="{{ filterEvent }}" onChange="{{ onEventChange }}" style="font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:500;color:#16302c;background:#fffdf7;border:1px solid rgba(20,64,59,0.14);border-radius:12px;padding:11px 13px;cursor:pointer;">
           <sc-for list="{{ eventOptions }}" as="o" hint-placeholder-count="3"><option value="{{ o }}">{{ o }}</option></sc-for>
         </select>
@@ -421,6 +430,9 @@ class Component extends DCLogic {
     filterEvent: 'All events',
     filterCrew: 'All crew',
     filterSpecies: 'All species',
+    filterYear: 'All years',
+    filterMonth: 'All months',
+    filterSite: 'All sites',
     sortKey: 'rec',
     sortDir: 1,
     page: 1,
@@ -432,6 +444,7 @@ class Component extends DCLogic {
 
   KEY = 'sockeyetracker.records.v1';
   PAGE_SIZE = 20;
+  MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   C = { ink:'#16302c', teal:'#1f7a6d', teal2:'#2f9d8a', blue:'#3a7ca5', coral:'#e2563b', gold:'#cf9b46', muted:'#5d726c' };
   CREW_COLORS = ['#1f7a6d','#3a7ca5','#2f9d8a','#cf9b46','#e2563b','#6f9c3f','#b5683c','#4a8fb0'];
 
@@ -537,7 +550,7 @@ class Component extends DCLogic {
         } else {
           recs = incoming;
         }
-        this.setState({ records: recs, dataSource: 'uploaded', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', detailOpen: false, view: 'dashboard' });
+        this.setState({ records: recs, dataSource: 'uploaded', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', filterYear: 'All years', filterMonth: 'All months', filterSite: 'All sites', detailOpen: false, view: 'dashboard' });
         try { localStorage.setItem(this.KEY, JSON.stringify(recs)); } catch (err) { msg = 'Loaded ' + this.fmtNum(recs.length) + ' records (too large to save in this browser — they will reset on reload).'; }
         if (msg) alert(msg);
         this.map = null;
@@ -549,7 +562,7 @@ class Component extends DCLogic {
   resetData = () => {
     try { localStorage.removeItem(this.KEY); } catch (e) {}
     this.map = null;
-    this.setState({ records: window.FISH_DATA || [], dataSource: 'builtin', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', detailOpen: false });
+    this.setState({ records: window.FISH_DATA || [], dataSource: 'builtin', page: 1, search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', filterYear: 'All years', filterMonth: 'All months', filterSite: 'All sites', detailOpen: false });
   };
 
   // ---------- derived ----------
@@ -568,6 +581,12 @@ class Component extends DCLogic {
       if (s.filterEvent !== 'All events' && (r['Event Type'] || '') !== s.filterEvent) return false;
       if (s.filterCrew !== 'All crew' && this.prettyName(r['Tagger']) !== s.filterCrew) return false;
       if (s.filterSpecies !== 'All species' && this.speciesName(r['SRR Code']) !== s.filterSpecies) return false;
+      if (s.filterSite !== 'All sites' && this.siteName(r['Event Site']) !== s.filterSite) return false;
+      if (s.filterYear !== 'All years' || s.filterMonth !== 'All months') {
+        const d = this.parseDate(r['Event Date']);
+        if (s.filterYear !== 'All years' && (d ? String(d.getFullYear()) : '') !== s.filterYear) return false;
+        if (s.filterMonth !== 'All months' && (d ? this.MONTHS[d.getMonth()] : '') !== s.filterMonth) return false;
+      }
       if (q) {
         const hay = [r['PIT Tag'], r['Record#'], r['Tagger'], r['Text Comments'], r['Conditional Comments'], r['Event Type'], r['Event Site']].join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
@@ -846,6 +865,11 @@ class Component extends DCLogic {
     const eventOptions = ['All events', ...this.uniqueVals('Event Type')];
     const crewOptions = ['All crew', ...crew];
     const speciesOptions = ['All species', ...speciesUniq];
+    const years = [...new Set(dates.map(d => String(d.getFullYear())))].sort((a, b) => b - a);
+    const yearOptions = ['All years', ...years];
+    const presentMonths = [...new Set(dates.map(d => d.getMonth()))].sort((a, b) => a - b).map(m => this.MONTHS[m]);
+    const monthOptions = ['All months', ...presentMonths];
+    const siteOptions = ['All sites', ...sitesUniq];
 
     const resultLabel = filteredCount === total
       ? this.fmtNum(total) + ' records · tap any row for the full story'
@@ -882,7 +906,7 @@ class Component extends DCLogic {
     }
 
     return {
-      appTitle, appSubtitle: sessionMsg.length > 60 ? sessionMsg.slice(0, 58) + '…' : sessionMsg,
+      appTitle, appSubtitle: 'Sockeye PIT Tagging',
       navItems,
       isDash: this.state.view === 'dashboard', isTable: this.state.view === 'table', isCharts: this.state.view === 'charts', isMap: this.state.view === 'map',
       dataSourceLabel: this.state.dataSource === 'uploaded' ? 'Your uploaded data' : 'Built-in sample data',
@@ -902,11 +926,15 @@ class Component extends DCLogic {
       search: this.state.search,
       onSearch: (e) => this.setState({ search: e.target.value, page: 1 }),
       filterEvent: this.state.filterEvent, filterCrew: this.state.filterCrew, filterSpecies: this.state.filterSpecies,
+      filterYear: this.state.filterYear, filterMonth: this.state.filterMonth, filterSite: this.state.filterSite,
       onEventChange: (e) => this.setState({ filterEvent: e.target.value, page: 1 }),
       onCrewChange: (e) => this.setState({ filterCrew: e.target.value, page: 1 }),
       onSpeciesChange: (e) => this.setState({ filterSpecies: e.target.value, page: 1 }),
-      clearFilters: () => this.setState({ search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', page: 1 }),
-      eventOptions, crewOptions, speciesOptions,
+      onYearChange: (e) => this.setState({ filterYear: e.target.value, page: 1 }),
+      onMonthChange: (e) => this.setState({ filterMonth: e.target.value, page: 1 }),
+      onSiteChange: (e) => this.setState({ filterSite: e.target.value, page: 1 }),
+      clearFilters: () => this.setState({ search: '', filterEvent: 'All events', filterCrew: 'All crew', filterSpecies: 'All species', filterYear: 'All years', filterMonth: 'All months', filterSite: 'All sites', page: 1 }),
+      eventOptions, crewOptions, speciesOptions, yearOptions, monthOptions, siteOptions,
       headerCols, pageRows, resultLabel, pageLabel,
       prevPage: () => this.setState(s => ({ page: Math.max(1, s.page - 1) })),
       nextPage: () => this.setState(s => ({ page: Math.min(totalPages, s.page + 1) })),
